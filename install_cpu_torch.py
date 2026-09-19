@@ -3,7 +3,7 @@
 
 Run from any normal terminal (NOT the AI sandbox, which caps files at 100 MiB):
 
-    cd ~/Desktop/strata-memory && venv/bin/python install_cpu_torch.py
+    cd ~/Desktop/splinter-memory && venv/bin/python install_cpu_torch.py
 
 What it does:
   1. Downloads torch-2.6.0+cpu wheel (~187 MiB) into this directory (resumable).

@@ -28,4 +28,4 @@ jobs:
         run: pip install -e .
 
       - name: Smoke test (facade import)
-        run: python -c "from strata import Strata, StrataConfig, UltraSmallDrone, LMStudioBackend; print('strata facade OK')"
+        run: python -c "from splinter import Strata, StrataConfig, UltraSmallDrone, LMStudioBackend; print('splinter facade OK')"

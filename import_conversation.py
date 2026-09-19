@@ -1,4 +1,4 @@
-"""Seed a strata conversation from an existing saved chat (unsloth Studio DB).
+"""Seed a splinter conversation from an existing saved chat (unsloth Studio DB).
 
 Usage: python import_conversation.py <thread_id> [conv_name]
 Reads all messages in order, stores each as a chunk (turn = message index),
@@ -11,8 +11,8 @@ import hashlib, json, os, sqlite3, sys
 from pathlib import Path
 
 sys.path.insert(0, ".")
-from strata.cortex.config import StrataConfig
-from strata.retention.store import ContextStore
+from splinter.cortex.config import StrataConfig
+from splinter.retention.store import ContextStore
 
 DB = "/home/penis/.unsloth/studio/studio.db"
 STATE_DIR = Path("harness_state")

@@ -85,7 +85,7 @@ const HOTSPOTS = [
   '/requirements-dev.txt',
   '/providers.example.json',
   'docs/INTEGRATE.md',
-  'strata/__init__.py',
+  'splinter/__init__.py',
 ];
 
 function fail(messages) {

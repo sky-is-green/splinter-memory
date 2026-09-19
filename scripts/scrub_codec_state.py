@@ -26,7 +26,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "strata"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "splinter"))
 
 from retention.codec import normalize_codec  # noqa: E402
 from retention.hygiene import content_fingerprint  # noqa: E402

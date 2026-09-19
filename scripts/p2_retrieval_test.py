@@ -2,7 +2,7 @@
 
 Simulates a 50-turn conversation in which GPU facts are mentioned at turns
 5, 20 and 40, then queried at turn 50. Verifies that persistent facts stay
-retrievable under the current decay defaults - i.e. strata works for its
+retrievable under the current decay defaults - i.e. splinter works for its
 INTENDED use case (long conversations with recurring topics), not just the
 synthetic bulk-ingest worst cases.
 
@@ -17,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "strata"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "splinter"))
 
 from cortex.routing import DroneRouter, EscalationHandler  # noqa: E402
 from focal.assembly import ContextAssembler  # noqa: E402

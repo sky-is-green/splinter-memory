@@ -1,4 +1,4 @@
-"""Ensure the system (`strata/`) package root is importable so flat names like
+"""Ensure the system (`splinter/`) package root is importable so flat names like
 `cortex`, `sieve`, `membrane` resolve from-source runs regardless of how pytest
 is invoked (an editable install makes this unnecessary).
 
@@ -9,4 +9,4 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(ROOT, "strata"))
+sys.path.insert(0, os.path.join(ROOT, "splinter"))
