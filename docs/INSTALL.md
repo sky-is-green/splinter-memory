@@ -1,6 +1,6 @@
 ﻿# Installing HiveBench (system + benchmark + studio)
 
-Fresh-machine install of the full stack: the **strata-memory** system (`strata/`),
+Fresh-machine install of the full stack: the **splinter-memory** system (`splinter/`),
 the **HiveBench** evaluation suite (sibling repo `../hivebench`,
 sky-is-green/hivebench), and the **HiveBench Studio**
 sidecar (`harness/`). ~5 minutes to a verified install.
@@ -27,8 +27,8 @@ sidecar (`harness/`). ~5 minutes to a verified install.
 ## 2. Get the repo
 
 ```powershell
-git clone https://github.com/sky-is-green/strata-memory.git
-cd strata-memory
+git clone https://github.com/sky-is-green/splinter-memory.git
+cd splinter-memory
 ```
 
 ## 3. Create the venv and install
@@ -90,7 +90,7 @@ reachable backend, **pre-downloads the default drone** (`paraphrase-MiniLM-L3-v2
 ~60 MB from Hugging Face, automatic on first live use either way), and prints
 the next command. The studio serves an OpenAI-compatible endpoint
 (`http://127.0.0.1:8765/v1/chat/completions`) that curates every conversation
-through the strata, this is the integration point for other harnesses (see
+through the splinter, this is the integration point for other harnesses (see
 `docs/INTEGRATE.md`).
 
 ## 7. Agent mode (optional - the dsh harness brain)
@@ -101,7 +101,7 @@ the studio. It needs the pinned dsh fork plus its Python SDK - one command
 sets all of it up:
 
 ```powershell
-# from the strata-memory root; builds the fork at ..\hivebench-studio
+# from the splinter-memory root; builds the fork at ..\hivebench-studio
 powershell -ExecutionPolicy Bypass -File setup.ps1 -SkipLlama
 ```
 
@@ -112,7 +112,7 @@ boot it). Requirements: Node 22+/24. Tool calls need a tool-capable loaded
 model (Gemma 4 26B-A4B and Qwen3-class work; Gemma 3 does not - no native
 tool template).
 
-Without this step everything else (chat, strata curation, benchmarks, model
+Without this step everything else (chat, splinter curation, benchmarks, model
 management) still works.
 
 ## 8. Run the live benchmark
@@ -121,11 +121,11 @@ management) still works.
 # quick iteration run (LM Studio on :1234)
 .\.venv\Scripts\python -m experiments.generate_data --live --no-thinking --confidence off --max-convs 3 --max-turns 10
 
-# paired strata-vs-FIFO answer A/B (the LLM-performance head-to-head)
+# paired splinter-vs-FIFO answer A/B (the LLM-performance head-to-head)
 .\.venv\Scripts\python -m experiments.paired_ab --live --model prism-ml/bonsai-27b --max-convs 2 --max-turns 45 --confidence off --max-tokens 120 --no-thinking --checkpoint-every 2 --output runs/paired_ab_prose.json --checkpoint runs/paired_ab_prose.ckpt.json
 ```
 
-See `STRATA-HANDOFF.md` §9 (live benchmark) and §15 (command cheat sheet) for the
+See `SPLINTER-HANDOFF.md` §9 (live benchmark) and §15 (command cheat sheet) for the
 full run matrix.
 
 ## 9. Troubleshooting
@@ -141,7 +141,7 @@ full run matrix.
 
 ## 10. Where to go next
 
-- `docs/INTEGRATE.md` - wire strata-memory into OpenCode, dsh, or your own harness
-- `README.md` - why Strata, why HiveBench, measured results
-- `STRATA-HANDOFF.md` - the master document: state, roadmap, commands
+- `docs/INTEGRATE.md` - wire splinter-memory into OpenCode, dsh, or your own harness
+- `README.md` - why Splinter, why HiveBench, measured results
+- `SPLINTER-HANDOFF.md` - the master document: state, roadmap, commands
 - `HARNESS-SPEC.md` - the studio sidecar contract

@@ -2,7 +2,7 @@
 
 Both tools take ``conversation_id`` as a required argument — isolation is
 per conversation, exactly like the ``/v1/splinter/*`` REST endpoints. The
-handlers operate on a ``Strata`` instance (duck-typed; no import needed) so
+handlers operate on a ``Splinter`` instance (duck-typed; no import needed) so
 this module stays independent of the sidecar's conversation registry.
 """
 
@@ -11,10 +11,10 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-TOOL_NAMES = ("strata_search", "strata_remember")
+TOOL_NAMES = ("splinter_search", "splinter_remember")
 
 SEARCH_TOOL: dict = {
-    "name": "strata_search",
+    "name": "splinter_search",
     "description": (
         "Recall curated context from the splinter memory for one conversation. "
         "Runs the query through the curation pipeline (classify, route, "
@@ -53,10 +53,10 @@ SEARCH_TOOL: dict = {
 }
 
 REMEMBER_TOOL: dict = {
-    "name": "strata_remember",
+    "name": "splinter_remember",
     "description": (
         "Store a fact, decision, or note into the splinter memory for one "
-        "conversation so later strata_search calls in the same conversation "
+        "conversation so later splinter_search calls in the same conversation "
         "can recall it. conversation_id scopes the write and is required "
         "on every call."
     ),

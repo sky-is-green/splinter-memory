@@ -1,4 +1,4 @@
-"""Strata checkpoint system.
+"""Splinter checkpoint system.
 
 Periodically saves splinter state (context store, decay matrix, parameter config) so
 rollback can restore a known-good state. ``auto_checkpoint`` saves only when the
@@ -16,7 +16,7 @@ from typing import Optional
 _SAFE_TAG = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
 
-class StrataCheckpoint:
+class SplinterCheckpoint:
     def __init__(self, directory: str | Path = "checkpoints") -> None:
         self.dir = Path(directory)
         self.dir.mkdir(parents=True, exist_ok=True)

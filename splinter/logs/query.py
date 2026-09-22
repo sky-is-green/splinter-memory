@@ -81,7 +81,7 @@ def summarize(entries: list[dict]) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Strata log query/report tool")
+    parser = argparse.ArgumentParser(description="Splinter log query/report tool")
     parser.add_argument("--dir", default="logs")
     parser.add_argument("--include-archive", action="store_true")
     args = parser.parse_args(argv)

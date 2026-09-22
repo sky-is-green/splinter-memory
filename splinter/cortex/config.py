@@ -1,4 +1,4 @@
-"""StrataConfig — all tunable parameters in one place.
+"""SplinterConfig — all tunable parameters in one place.
 
 Lets A/B testing and automated rollback swap whole configurations cleanly, and
 loads/saves via the Gatekeeper merge contract (cortex.interop).
@@ -16,7 +16,7 @@ from retention.hygiene import DEFAULT_INGEST_BLOCK_PREFIXES
 
 
 @dataclass
-class StrataConfig:
+class SplinterConfig:
     # --- retention ---
     decay_multiplier_init: float = 1.1  # was 1.8; 1.8 killed persistent facts in >30-turn convos (2026-09-13 retrieval test)
     remembrance_threshold: float = 0.65
@@ -97,7 +97,7 @@ class StrataConfig:
     # Calibrated by comb_probe + the P11 replay (2026-08-24): the pipeline
     # drone applies vocab_boost (+0.15), so the probe's unboosted 0.7
     # calibration (~97% of return turns) lands at 0.85 with boost; the gate
-    # also fires on *query echoes* (Strata._comb_gate_fires) — template-sibling
+    # also fires on *query echoes* (Splinter._comb_gate_fires) — template-sibling
     # question chunks score ~1.0 but carry no facts and otherwise keep the
     # gate closed on every return turn after the first.
     comb_gate_threshold: float = 0.85
@@ -111,14 +111,14 @@ class StrataConfig:
     })
 
     @classmethod
-    def defaults(cls) -> "StrataConfig":
+    def defaults(cls) -> "SplinterConfig":
         return cls()
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "StrataConfig":
+    def from_dict(cls, data: dict) -> "SplinterConfig":
         known = {f.name for f in fields(cls)}
         cleaned = {k: v for k, v in (data or {}).items() if k in known}
         # JSON round-trips tuples as lists; restore the budget-range tuples.
@@ -134,12 +134,12 @@ class StrataConfig:
         path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
 
     @classmethod
-    def load(cls, path: str | Path) -> "StrataConfig":
+    def load(cls, path: str | Path) -> "SplinterConfig":
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
     def apply_gatekeeper_overrides(
         self, overrides: dict, seam: Optional[GatekeeperSeam] = None
-    ) -> "StrataConfig":
+    ) -> "SplinterConfig":
         """Return a new config with Gatekeeper-provided overrides applied safely."""
         seam = seam or GatekeeperSeam()
         merged = seam.merge_config(self.to_dict(), overrides)

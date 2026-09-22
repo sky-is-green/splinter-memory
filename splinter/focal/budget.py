@@ -19,7 +19,7 @@ class AdaptiveBudget:
 
     def __init__(self, ultra_small_budget_tokens: int = 1000) -> None:
         # Floor (lo end) of the ultra_small adaptive range; configurable via
-        # StrataConfig.ultra_small_budget_tokens for A/B tests. Other routes
+        # SplinterConfig.ultra_small_budget_tokens for A/B tests. Other routes
         # keep their class-level ranges.
         self.ultra_small_budget_tokens = ultra_small_budget_tokens
 

@@ -1,4 +1,4 @@
-# Strata Memory: A Managed-Decay Context Curation Architecture for Long-Horizon LLM Conversations
+# Splinter Memory: A Managed-Decay Context Curation Architecture for Long-Horizon LLM Conversations
 
 **A white paper for the open-source LLM and testing community**
 
@@ -25,7 +25,7 @@
 
 ## Abstract
 
-Large language models (LLMs) exhibit well-documented degradation over long-horizon interactions: performance decays as conversation length grows, relevant information "falls off" rolling context windows, and generation speed slows with growing KV-cache state. We propose **Strata Memory**, an external, multi-agent context curation architecture that decouples *context comprehension* from *context generation*. A fleet of small bidirectional encoder models ("drones") continuously scores, filters, compresses, and reassembles conversation history into a bounded, high-relevance context window that is then delivered to the primary autoregressive model via a cache-managed inference backend.
+Large language models (LLMs) exhibit well-documented degradation over long-horizon interactions: performance decays as conversation length grows, relevant information "falls off" rolling context windows, and generation speed slows with growing KV-cache state. We propose **Splinter Memory**, an external, multi-agent context curation architecture that decouples *context comprehension* from *context generation*. A fleet of small bidirectional encoder models ("drones") continuously scores, filters, compresses, and reassembles conversation history into a bounded, high-relevance context window that is then delivered to the primary autoregressive model via a cache-managed inference backend.
 
 This paper states the architectural theory, formalizes the mechanisms (targeted masking, tiered routing, managed decay, remembrance passes, deduplication, drift detection), and, critically, presents **labeled, falsifiable predictions** (P1-P11) with explicit logic chains and measurement protocols, so the community can reproduce, challenge, or extend the work. All claims are designed to be testable on consumer hardware with open-weight models. As of 2026-08-24 the protocol is measured end-to-end: P1/P3/P4/P5/P7/P8/P9/P11 PASS (P11 deterministically and live-validated), P2 passes on recall and is falsified on precision (the encoder ceiling, Threat 6), P6/P10 FAIL, each verdict with its evidence and confound fixes in the sections below. The companion tooling, the **HiveBench** evaluation suite and the HiveBench Studio sidecar (§12), ships with the protocol: deterministic diagnostics, self-contained run bundles, and an engine-agnostic backend layer, so the architecture can be driven against any local (LM Studio / llama.cpp, vLLM) or hosted OpenAI-compatible backend and its claims re-measured on demand.
 
@@ -53,7 +53,7 @@ flowchart TB
         F2["Lost-in-the-middle (attention): the model under-uses the middle of a large raw window"]
         F3["Quadratic cost (compute): the prompt grows every turn, slower generation, OOM risk"]
     end
-    subgraph FIX["How STRATA removes each one"]
+    subgraph FIX["How SPLINTER removes each one"]
         direction TB
         M1["Sieve: relevance-score every chunk vs. the current query, foundational context keeps scoring high"]
         M2["Focal: assemble a bounded, relevance-ranked window, attention is spent only on tokens predicted to matter"]
@@ -73,9 +73,9 @@ This is a division of labor: the generative model does what it does best (genera
 ```mermaid
 flowchart LR
     NAIVE["Naive: keep the MOST RECENT, blind FIFO eviction, context loss + quadratic cost"]
-    STRATA["STRATA: keep the MOST RELEVANT, relevance-ranked, bounded selection"]
+    SPLINTER["SPLINTER: keep the MOST RELEVANT, relevance-ranked, bounded selection"]
     NAIVE -->|"degrades as conversations grow"| GAP["The gap widens with conversation length"]
-    STRATA -->|"stays flat at any length"| GAP
+    SPLINTER -->|"stays flat at any length"| GAP
 ```
 
 The same conversation, two context-delivery paths, and the measured outcome of each (details in §1.4 and §8):
@@ -84,14 +84,14 @@ The same conversation, two context-delivery paths, and the measured outcome of e
 flowchart TB
     SPLIT{"How is context delivered to the LLM?"}
     SPLIT -->|"no curation layer"| N1["Window fills at 4-8k tokens"]
-    SPLIT -->|"STRATA curation layer"| H1["Sieve: drone fleet scores every chunk vs. the query"]
+    SPLIT -->|"SPLINTER curation layer"| H1["Sieve: drone fleet scores every chunk vs. the query"]
     N1 --> N2["Blind FIFO eviction, oldest text dropped"]
     H1 --> H2["Membrane: semantic dedup (keep densest) + topic-drift reset"]
     N2 --> N3["Context loss + lost-in-the-middle + quadratic cost"]
     H2 --> H3["Retention: remembrance pass saves + sharp decay matrix"]
     N3 --> R1["Baseline outcome: near-chance retrieval past the window; PES ~12 (measured rolling/FIFO)"]
     H3 --> H4["Focal: bounded, high-relevance window (1-3k live)"]
-    H4 --> R2["Strata outcome: flat decode tps (P1); recall 90.3% on stated facts (P2); post-run PES 80.0 GREEN"]
+    H4 --> R2["Splinter outcome: flat decode tps (P1); recall 90.3% on stated facts (P2); post-run PES 80.0 GREEN"]
     R1 --> TAKE["Same or cheaper compute per turn, strictly better long-run quality, the gap widens as conversations grow"]
     R2 --> TAKE
 ```
@@ -100,8 +100,8 @@ The improvement grows with conversation length because the naive system's failur
 
 ```mermaid
 flowchart LR
-    L1["1-10 turns: naive and STRATA both fit in the window, small or no difference (STRATA adds a little overhead)"]
-    L10["100+ turns: naive has evicted foundational context and slows; STRATA still feeds the same bounded, high-relevance window"]
+    L1["1-10 turns: naive and SPLINTER both fit in the window, small or no difference (SPLINTER adds a little overhead)"]
+    L10["100+ turns: naive has evicted foundational context and slows; SPLINTER still feeds the same bounded, high-relevance window"]
     L1 --> L10
     L10 --> E["The longer the conversation, the more relevance-ranked curation matters, which is exactly where naive systems fall apart"]
 ```
@@ -116,70 +116,70 @@ So the tests are not about intelligence, similarity to people, or any species-le
 
 The division this presupposes, selection done by the cheap encoder fleet, generation done by the primary model, is not merely assumed: the live data keeps confirming that the generative model is **good at producing answers; it is the wrong tool for selecting context** (see Postulate 3 and Threat 6). HiveBench's tests therefore measure the *selection* layer's decisions, not the generator's, and treat any attempt to "fix" retrieval by making the generator larger as a category error.
 
-**Why we need these tests.** The claim is falsifiable, and the live setting now speaks to it: the 2026-08-22 strata-vs-baselines run (`20260822_211131`) is a clean live result, bounded context carried the fact when history contained it (deterministic P2 recall 90.3% ≥ 90% target), strata ≥ FIFO on 85.1% of retrievable turns (P3), and post-run PES 80.0 GREEN vs rolling 12.2 / FIFO 11.6. The live runs also showed that the *measurement* had to be de-confounded first (cross-conversation contamination, hedge-reply poisoning, auditor sufficiency confounds, Threat 8, P2 note) before the policy itself could be read. The selection policy is the product, the generative model is a commodity, so if the policy is indistinguishable from FIFO the project has no reason to exist. The tests are also the only defense against silent failure modes that look healthy: a policy that retrieves most of what it stored can still starve if it stored little of what mattered (see the `ingestion_rate` / `perfect_hive_ceiling` decomposition in P2), and they give the calibration knobs (decay multiplier, drift threshold, budget ranges, routing threshold) an objective to be tuned against instead of a guess.
+**Why we need these tests.** The claim is falsifiable, and the live setting now speaks to it: the 2026-08-22 splinter-vs-baselines run (`20260822_211131`) is a clean live result, bounded context carried the fact when history contained it (deterministic P2 recall 90.3% ≥ 90% target), splinter ≥ FIFO on 85.1% of retrievable turns (P3), and post-run PES 80.0 GREEN vs rolling 12.2 / FIFO 11.6. The live runs also showed that the *measurement* had to be de-confounded first (cross-conversation contamination, hedge-reply poisoning, auditor sufficiency confounds, Threat 8, P2 note) before the policy itself could be read. The selection policy is the product, the generative model is a commodity, so if the policy is indistinguishable from FIFO the project has no reason to exist. The tests are also the only defense against silent failure modes that look healthy: a policy that retrieves most of what it stored can still starve if it stored little of what mattered (see the `ingestion_rate` / `perfect_hive_ceiling` decomposition in P2), and they give the calibration knobs (decay multiplier, drift threshold, budget ranges, routing threshold) an objective to be tuned against instead of a guess.
 
-**Why it is beneficial.** The tests convert "context management" from a vibe into a number: one block of the run report shows what the strata stored, what it retrieved, and what the model itself failed to contribute, deterministic, replayable, and cheap, with no LLM-auditor opinion required. The recall/ingestion split tells us *which* knob to turn and stops us from blaming the architecture for a model's output distribution. They make the bounded-context argument concrete, the lost "off-screen" history is recovered by a selective policy, not mourned, and they publish the ceiling (`perfect_hive_ceiling`) so the metric cannot be gamed into looking better than the data allows.
+**Why it is beneficial.** The tests convert "context management" from a vibe into a number: one block of the run report shows what the splinter stored, what it retrieved, and what the model itself failed to contribute, deterministic, replayable, and cheap, with no LLM-auditor opinion required. The recall/ingestion split tells us *which* knob to turn and stops us from blaming the architecture for a model's output distribution. They make the bounded-context argument concrete, the lost "off-screen" history is recovered by a selective policy, not mourned, and they publish the ceiling (`perfect_hive_ceiling`) so the metric cannot be gamed into looking better than the data allows.
 
 ### 1.4 The user-visible benefit (measured)
 
-This avenue of research, a bounded-attention selection policy with measurable improvements, exists because the alternative (no strata, raw context) has failure modes that are both user-visible and quantifiable, and because the strata's repair of them is measurable rather than asserted. Live and offline measurements (2026-08-22/23):
+This avenue of research, a bounded-attention selection policy with measurable improvements, exists because the alternative (no splinter, raw context) has failure modes that are both user-visible and quantifiable, and because the splinter's repair of them is measurable rather than asserted. Live and offline measurements (2026-08-22/23):
 
-1. **Bounded cost, always.** The strata caps the context window regardless of conversation length (adaptive budget: configured 1k-6k by route tier, live-measured 1-3k, the window cap never binds at ≥8k model windows, verified by replay at 8k/16k/32k), so per-turn generation time stays flat: **P1 PASS live**, decode tps constant across 308+ turns (14.5→15.5, +6.7%), no context-bloat slowdown. A FIFO/rolling window grows until the model's context limit, then truncates, that is the moment facts drop and generation slows. The strata's own overhead is negligible against generation: ~3.4ms assembly + ~15ms drone scoring per turn vs. tens of seconds of decoding.
-2. **Facts survive retrieval.** When a fact was stated earlier, a later ask retrieves it: **P2 recall 90.3% live** (≥90% target), and on long conversations the strata beats FIFO on **85.1% of retrievable turns** (4.4:1 when only one side succeeds). This is the difference between the model *answering* and *refusing/hedging*, the failure mode observed live when eviction and hedge-reply poisoning starved the context (hedges were being stored and re-retrieved *as context*; both halves fixed and re-validated).
+1. **Bounded cost, always.** The splinter caps the context window regardless of conversation length (adaptive budget: configured 1k-6k by route tier, live-measured 1-3k, the window cap never binds at ≥8k model windows, verified by replay at 8k/16k/32k), so per-turn generation time stays flat: **P1 PASS live**, decode tps constant across 308+ turns (14.5→15.5, +6.7%), no context-bloat slowdown. A FIFO/rolling window grows until the model's context limit, then truncates, that is the moment facts drop and generation slows. The splinter's own overhead is negligible against generation: ~3.4ms assembly + ~15ms drone scoring per turn vs. tens of seconds of decoding.
+2. **Facts survive retrieval.** When a fact was stated earlier, a later ask retrieves it: **P2 recall 90.3% live** (≥90% target), and on long conversations the splinter beats FIFO on **85.1% of retrievable turns** (4.4:1 when only one side succeeds). This is the difference between the model *answering* and *refusing/hedging*, the failure mode observed live when eviction and hedge-reply poisoning starved the context (hedges were being stored and re-retrieved *as context*; both halves fixed and re-validated).
 3. **Bounded memory.** The store enforces a chunk cap with LRU eviction (verified over 500+ turns, peak RSS ≈34.7 MB). No unbounded growth in arbitrarily long sessions, a real leak was found, fixed, and regression-locked.
-4. **Neutral where it doesn't help.** On short conversations both systems fit the facts (P3 tie), the strata neither helps nor hurts; its advantage appears exactly where the naive baselines have evicted facts.
+4. **Neutral where it doesn't help.** On short conversations both systems fit the facts (P3 tie), the splinter neither helps nor hurts; its advantage appears exactly where the naive baselines have evicted facts.
 
-![Figure 1: The same conversation, two context-delivery paths: naive FIFO eviction vs the strata's curation pipeline, and the measured outcomes of each.](figures/flow.png)
+![Figure 1: The same conversation, two context-delivery paths: naive FIFO eviction vs the splinter's curation pipeline, and the measured outcomes of each.](figures/flow.png)
 
-*Figure 1: The same conversation, two context-delivery paths: naive FIFO eviction vs the strata's curation pipeline, and the measured outcomes of each (P1 flat decode tps; P2 recall 90.3% deterministic; post-run PES 80.0 GREEN vs ~12 baselines).*
+*Figure 1: The same conversation, two context-delivery paths: naive FIFO eviction vs the splinter's curation pipeline, and the measured outcomes of each (P1 flat decode tps; P2 recall 90.3% deterministic; post-run PES 80.0 GREEN vs ~12 baselines).*
 
 The residual weakness is retrieval *efficiency* (10.7% sentence-proxy precision, Threat 6: the context contains many irrelevant chunks), which the auditor judges as not harming answer sufficiency (100% in live runs). The 2026-08-23 **B avenue closed encoder scaling as the remedy**: six encoders (stock, 568M retrieval-specialized [[13]](#ref-13), two contrastive-tuned variants, plus the earlier graphcodebert cross-encoder [[12]](#ref-12) and P5 bert-tiny [[16]](#ref-16)) all land on the same top-K curve, the ceiling is data-structural, not encoder-capacity. The remaining options are to accept the ceiling (users still get correct answers, only a fatter context) or change the task definition (a classifier over chunk classes rather than cosine ranking). That inefficiency is why work on the selection layer continues.
 
 ### 1.5 Why this component is needed, why it affects all LLM usage, and why it must be separate
 
-**Why it is needed.** Every autoregressive LLM has a fixed context window and pays per-token cost, and every long interaction eventually outgrows both. When it does, three compounding failures follow, two measured directly in this project's live runs, one established in the literature: (1) *fact eviction*, FIFO/rolling windows drop early decisions, and the model then hedges or refuses because the answer is genuinely no longer in view (live2: 49% refusal replies, the model's own hedges re-retrieved as "context"); (2) *attention dilution* (Liu et al., 2023, [[4]](#ref-4)), even inside the window, middle content is systematically under-used; (3) *compute cost*, KV state and decode time grow with context, and on local hardware the KV cache spills to system RAM mid-conversation, halving decode speed at an arbitrary turn. These are properties of the *architecture class* (attention over a growing sequence), not of any one model, every model, every vendor, every deployment size, local or API, inherits them. A bounded, relevance-selected context is therefore not an optimization; it is the difference between a conversation that degrades at a random point and one that does not degrade at all (P1: decode tps flat across 308+ turns; P3: strata ≥ FIFO on 85.1% of retrievable turns).
+**Why it is needed.** Every autoregressive LLM has a fixed context window and pays per-token cost, and every long interaction eventually outgrows both. When it does, three compounding failures follow, two measured directly in this project's live runs, one established in the literature: (1) *fact eviction*, FIFO/rolling windows drop early decisions, and the model then hedges or refuses because the answer is genuinely no longer in view (live2: 49% refusal replies, the model's own hedges re-retrieved as "context"); (2) *attention dilution* (Liu et al., 2023, [[4]](#ref-4)), even inside the window, middle content is systematically under-used; (3) *compute cost*, KV state and decode time grow with context, and on local hardware the KV cache spills to system RAM mid-conversation, halving decode speed at an arbitrary turn. These are properties of the *architecture class* (attention over a growing sequence), not of any one model, every model, every vendor, every deployment size, local or API, inherits them. A bounded, relevance-selected context is therefore not an optimization; it is the difference between a conversation that degrades at a random point and one that does not degrade at all (P1: decode tps flat across 308+ turns; P3: splinter ≥ FIFO on 85.1% of retrievable turns).
 
-**Why it affects all LLM usage.** The failure is universal; so is the remedy. The strata operates on the *context*, not the model, the same bounded assembly is delivered through the same OpenAI-compatible seam, and its universality is measured on **llama.cpp** (LM Studio, the live backend here): every live turn was served by llama.cpp across different model families (bonsai-27b, the qwen MoE variants, plus gemma in the speed probe). The claim is **expected, but untested, on vLLM** (PagedAttention): the dormant `VLLMBackend` is written and mock-tested, and the engine's KV-paging API is the intended host for surgical cache edits, but no live measurement has been taken on it yet. On local hardware the strata prevents the conversation-driven KV spill (the bounded context keeps KV small, so decode stays at full GPU speed regardless of conversation length); on API deployments it caps token cost per turn (the context is fixed-size, so billing is predictable); in multi-user/multi-GPU serving it bounds each session's KV, raising sessions-per-VRAM. There is no LLM deployment where an unbounded, unmanaged context is a feature.
+**Why it affects all LLM usage.** The failure is universal; so is the remedy. The splinter operates on the *context*, not the model, the same bounded assembly is delivered through the same OpenAI-compatible seam, and its universality is measured on **llama.cpp** (LM Studio, the live backend here): every live turn was served by llama.cpp across different model families (bonsai-27b, the qwen MoE variants, plus gemma in the speed probe). The claim is **expected, but untested, on vLLM** (PagedAttention): the dormant `VLLMBackend` is written and mock-tested, and the engine's KV-paging API is the intended host for surgical cache edits, but no live measurement has been taken on it yet. On local hardware the splinter prevents the conversation-driven KV spill (the bounded context keeps KV small, so decode stays at full GPU speed regardless of conversation length); on API deployments it caps token cost per turn (the context is fixed-size, so billing is predictable); in multi-user/multi-GPU serving it bounds each session's KV, raising sessions-per-VRAM. There is no LLM deployment where an unbounded, unmanaged context is a feature.
 
 **Why it must be separate.** Three reasons: (1) *The generative model is the wrong tool for selection* (Postulate 3). Selecting context is a comprehension task; bidirectional encoders are orders of magnitude cheaper and better at it. Measured: using the 27B generative model as an encoder proxy yields 0.2 effective tps, tens of seconds per turn on the hot path, and it would still hit the same relevance ceiling. (2) *Universality without retraining.* Memory inside the model means retraining every model and every vendor. An external layer curates context for any model, any size, without touching weights, it is the only form of the remedy that generalizes across the ecosystem. (3) *Falsifiability.* The P1-P11 protocol exists because the selection layer is inspectable, replayable, and measurable; internalized memory would be an unobservable black box. The separation is therefore not an implementation preference, it is what makes the architecture cheap, universal, and testable at the same time.
 
-**Setup-independence.** The strata is a boon to LLM usage *regardless of deployment*, and it is fully portable across hardware. The strata itself is **CPU-resident**, drones, scoring, assembly, drift, and dedup contain no GPU code and run on CPU threads; it communicates with the generative model only through the OpenAI-compatible backend seam, so it is indifferent to what serves the model: AMD (LM Studio / llama.cpp, the environment this project was measured on), NVIDIA (vLLM: the dormant `VLLMBackend` is written and mock-tested), cloud APIs, or multi-GPU servers. The GPU runs the generative model; the strata curates for it, on CPU, for any vendor, and every measured benefit (flat latency, fact survival, bounded memory, KV no-spill, bounded API token cost) transfers unchanged. No measurement in this paper depends on GPU vendor or model family.
+**Setup-independence.** The splinter is a boon to LLM usage *regardless of deployment*, and it is fully portable across hardware. The splinter itself is **CPU-resident**, drones, scoring, assembly, drift, and dedup contain no GPU code and run on CPU threads; it communicates with the generative model only through the OpenAI-compatible backend seam, so it is indifferent to what serves the model: AMD (LM Studio / llama.cpp, the environment this project was measured on), NVIDIA (vLLM: the dormant `VLLMBackend` is written and mock-tested), cloud APIs, or multi-GPU servers. The GPU runs the generative model; the splinter curates for it, on CPU, for any vendor, and every measured benefit (flat latency, fact survival, bounded memory, KV no-spill, bounded API token cost) transfers unchanged. No measurement in this paper depends on GPU vendor or model family.
 
 ### 1.6 Relationship to KV-compression: the three axes (TurboQuant and friends)
 
 The long-context cost problem has three independent axes, and this paper's architecture is deliberately **one** of them:
 
-- **Selection** (what this project does): *which* tokens deserve to be in front of the model at all. The strata keeps the context bounded (1-3k tokens live-measured) and relevance-curated, so the KV cache only ever holds curated tokens plus a byte-stable pinned prefix.
+- **Selection** (what this project does): *which* tokens deserve to be in front of the model at all. The splinter keeps the context bounded (1-3k tokens live-measured) and relevance-curated, so the KV cache only ever holds curated tokens plus a byte-stable pinned prefix.
 - **Precision** (what TurboQuant does): *how many bits* each KV value costs. TurboQuant (Google, ICLR 2026, [[11]](#ref-11)) is an online vector quantizer, random rotation plus per-coordinate Lloyd-Max scalar quantization [[15]](#ref-15), that stores the KV cache at ~3-4 bits with near-zero quality loss and a proof of near-optimal distortion. It compresses the KV that exists; it does not decide what exists.
 - **Container** (what PagedAttention / llama.cpp prefix caching do, and what edge-native MoE servers like FreeToken [[19]](#ref-19) push further with bandwidth-adaptive expert caching): *how* the KV is organized and reused.
 
-These are **composable, not competing**: TurboQuant and FreeToken each attack a single axis [[11]](#ref-11), [[19]](#ref-19), so a strata deployment can stack them unchanged. A strata-curated 1-3k context with TurboQuant KV is `raw_history / budget × ~6` smaller than raw, e.g., a 50k-token conversation is ~150× smaller in KV, because the selection saving multiplies the precision saving on the surviving tokens. TurboQuant is also the *better* fit on exactly the hardware this project measures on: consumer AMD GPUs have no FP8-attention path, and TurboQuant works without it.
+These are **composable, not competing**: TurboQuant and FreeToken each attack a single axis [[11]](#ref-11), [[19]](#ref-19), so a splinter deployment can stack them unchanged. A splinter-curated 1-3k context with TurboQuant KV is `raw_history / budget × ~6` smaller than raw, e.g., a 50k-token conversation is ~150× smaller in KV, because the selection saving multiplies the precision saving on the surviving tokens. TurboQuant is also the *better* fit on exactly the hardware this project measures on: consumer AMD GPUs have no FP8-attention path, and TurboQuant works without it.
 
-Two caveats. (1) **Attribution:** Threat 7 already concedes the strata's flat-throughput win is co-produced with llama.cpp's automatic prefix caching; a quantized-KV backend would deepen that co-production. P1's falsification conditions are unchanged, but the throughput claim's attribution would need another clause on replication. (2) **Where freed memory should go:** the P4 sweep measured that looser cutoffs wash out the decay signal, and Threat 6's precision ceiling caps what a fatter context buys, freed KV headroom is better spent on concurrent sessions than on a larger budget.
+Two caveats. (1) **Attribution:** Threat 7 already concedes the splinter's flat-throughput win is co-produced with llama.cpp's automatic prefix caching; a quantized-KV backend would deepen that co-production. P1's falsification conditions are unchanged, but the throughput claim's attribution would need another clause on replication. (2) **Where freed memory should go:** the P4 sweep measured that looser cutoffs wash out the decay signal, and Threat 6's precision ceiling caps what a fatter context buys, freed KV headroom is better spent on concurrent sessions than on a larger budget.
 
 ---
 
 ## 2. Related Work
 
-| Work | Relevance | How Strata differs |
+| Work | Relevance | How Splinter differs |
 |---|---|---|
-| TurboQuant (Google, ICLR 2026) [[11]](#ref-11) | Online vector quantization: KV cache at ~3-4 bits, near-zero loss (precision axis) | Strata attacks the *selection* axis (which tokens) instead; the axes compose (§1.6), so they are complementary rather than alternatives |
-| SHADOW-250M (QLNI/NODEMIND, 2026) [[10]](#ref-10) | Trained-in two-tier memory: 2k-token live KV + 100M-token 1-bit disk archive with lexical retrieval | The *in-model* version of surplus storage: Strata's comb is external, separable, and falsifiable (P11); SHADOW's own limits (no cross-archive reasoning) are the separation argument (§1.5), and its benchmark shapes (look-alike needles, latest-wins, multi-key) are P11's measurement template |
-| FreeToken (Yang et al., 2026) [[19]](#ref-19) | Edge-native MoE serving: bandwidth-adaptive expert caching and recurrent-state checkpoints anchored at the semantic boundaries where agent harnesses edit context (container axis) | Composes on the container axis exactly as TurboQuant does on precision (§1.6): the strata shrinks and curates the token stream; FreeToken serves what remains cheaply on consumer hardware, its dominant costs are precisely the unbounded agentic context growth the strata removes |
-| Lost in the Middle (Liu et al., 2023) [[4]](#ref-4) | Documents the attention-failure phenomenon | Strata treats it as a *design problem to engineer around*, not an irreducible limit |
-| Retrieval-Augmented Generation (Lewis et al., 2020) [[2]](#ref-2) | Retrieval before generation improves groundedness | Strata retrieves from *its own conversation*, not an external corpus, and does so continuously, not per-query |
+| TurboQuant (Google, ICLR 2026) [[11]](#ref-11) | Online vector quantization: KV cache at ~3-4 bits, near-zero loss (precision axis) | Splinter attacks the *selection* axis (which tokens) instead; the axes compose (§1.6), so they are complementary rather than alternatives |
+| SHADOW-250M (QLNI/NODEMIND, 2026) [[10]](#ref-10) | Trained-in two-tier memory: 2k-token live KV + 100M-token 1-bit disk archive with lexical retrieval | The *in-model* version of surplus storage: Splinter's comb is external, separable, and falsifiable (P11); SHADOW's own limits (no cross-archive reasoning) are the separation argument (§1.5), and its benchmark shapes (look-alike needles, latest-wins, multi-key) are P11's measurement template |
+| FreeToken (Yang et al., 2026) [[19]](#ref-19) | Edge-native MoE serving: bandwidth-adaptive expert caching and recurrent-state checkpoints anchored at the semantic boundaries where agent harnesses edit context (container axis) | Composes on the container axis exactly as TurboQuant does on precision (§1.6): the splinter shrinks and curates the token stream; FreeToken serves what remains cheaply on consumer hardware, its dominant costs are precisely the unbounded agentic context growth the splinter removes |
+| Lost in the Middle (Liu et al., 2023) [[4]](#ref-4) | Documents the attention-failure phenomenon | Splinter treats it as a *design problem to engineer around*, not an irreducible limit |
+| Retrieval-Augmented Generation (Lewis et al., 2020) [[2]](#ref-2) | Retrieval before generation improves groundedness | Splinter retrieves from *its own conversation*, not an external corpus, and does so continuously, not per-query |
 | Don't Stop Pretraining (Gururangan et al., 2020) [[3]](#ref-3); SciBERT [[22]](#ref-22), BioBERT [[23]](#ref-23), and CodeBERT [[24]](#ref-24) | Domain-adaptive pretraining improves downstream performance | Basis for targeted masking and domain-optimized drones |
-| PagedAttention / vLLM (Kwon et al., 2023) [[5]](#ref-5) | Page-level KV-cache management avoids memory fragmentation and enables surgical edits | Strata's KV-cache manipulation depends on this primitive |
-| MemGPT (Packer et al., 2023) [[7]](#ref-7) | OS-inspired memory paging between main and external context | Strata uses *learned relevance scoring* (encoder fleet) rather than OS-style paging heuristics, extended by the comb tier (P11), which is exactly paging with learned scoring |
-| LLMLingua (Jiang et al., 2023) [[6]](#ref-6) | Prompt compression accelerates inference | Strata compresses *persistent* memory, not just the current prompt, with decay-aware retention |
-| Generative Agents (Park et al., 2023) [[8]](#ref-8) | Agents maintain memory with importance scoring and reflection | Strata formalizes the forgetting side with an explicit, tunable decay matrix |
+| PagedAttention / vLLM (Kwon et al., 2023) [[5]](#ref-5) | Page-level KV-cache management avoids memory fragmentation and enables surgical edits | Splinter's KV-cache manipulation depends on this primitive |
+| MemGPT (Packer et al., 2023) [[7]](#ref-7) | OS-inspired memory paging between main and external context | Splinter uses *learned relevance scoring* (encoder fleet) rather than OS-style paging heuristics, extended by the comb tier (P11), which is exactly paging with learned scoring |
+| LLMLingua (Jiang et al., 2023) [[6]](#ref-6) | Prompt compression accelerates inference | Splinter compresses *persistent* memory, not just the current prompt, with decay-aware retention |
+| Generative Agents (Park et al., 2023) [[8]](#ref-8) | Agents maintain memory with importance scoring and reflection | Splinter formalizes the forgetting side with an explicit, tunable decay matrix |
 | Ebbinghaus forgetting curve (1885) [[1]](#ref-1) | Exponential forgetting over time | The *Sharp Decay Matrix* is a computational analogue, with *escalating* friction on re-saved items |
 
 ---
 
 ## 3. Architectural Overview
 
-Strata Memory is organized into five functional layers. (The implementation itself is the specification: `strata/` in this repository, with the layer map below and the module tree in the repo.)
+Splinter Memory is organized into five functional layers. (The implementation itself is the specification: `splinter/` in this repository, with the layer map below and the module tree in the repo.)
 
 | Layer | Function | Core mechanisms |
 |---|---|---|
@@ -235,7 +235,7 @@ flowchart TB
     B1 --> O1["P1: throughput flat ±10% across 500 turns (measured 14.5 → 15.5 tps over 308+ turns)"]
     B2 --> O2["P2: recall ≥90% met (90.3% live, deterministic); precision = encoder ceiling (Threat 6)"]
     B3 --> O3["P4: domains separate by decay tolerance (code m90 1.8 vs prose 1.2)"]
-    O1 --> WIN["STRATA dominates naive precisely in the regime where naive degrades, long conversations"]
+    O1 --> WIN["SPLINTER dominates naive precisely in the regime where naive degrades, long conversations"]
     O2 --> WIN
     O3 --> WIN
 ```
@@ -244,9 +244,9 @@ And why externalizing the comprehension is the cheaper allocation of the same co
 
 ```mermaid
 flowchart LR
-    W1["Without STRATA: the LLM re-discovers, on every turn, which earlier tokens matter, expensive causal attention over raw, unbounded history"]
-    W2["With STRATA: small bidirectional encoders (orders of magnitude cheaper) do the comparison and similarity work up front"]
-    W1 -->|"same token budget"| C2["Relevance-ranked selection concentrates the LLM's expensive attention on the tokens that actually matter (P3: equal budget, strata sufficiency higher on ≥80% of turns)"]
+    W1["Without SPLINTER: the LLM re-discovers, on every turn, which earlier tokens matter, expensive causal attention over raw, unbounded history"]
+    W2["With SPLINTER: small bidirectional encoders (orders of magnitude cheaper) do the comparison and similarity work up front"]
+    W1 -->|"same token budget"| C2["Relevance-ranked selection concentrates the LLM's expensive attention on the tokens that actually matter (P3: equal budget, splinter sufficiency higher on ≥80% of turns)"]
     W2 --> C2
 ```
 
@@ -257,23 +257,23 @@ flowchart LR
 Each prediction below is **labeled** with its identifier, a falsifiable statement, the **logic chain** (premises → prediction), the **measurement protocol**, and the **falsification condition**. Repeating the protocol with the same hardware/model setup must reproduce the measured outcome.
 
 ### P1: Constant-Throughput Hypothesis
-**Prediction:** Tokens-per-second of the primary model remain within ±10% of the turn-10 value across a 500-turn conversation, when fed strata-curated context of bounded size.
+**Prediction:** Tokens-per-second of the primary model remain within ±10% of the turn-10 value across a 500-turn conversation, when fed splinter-curated context of bounded size.
 
 **Logic chain:**
 1. Generation cost is dominated by total prompt size (KV-cache state) in naive systems.
-2. Strata bounds prompt size at the adaptive budget (≤6k tokens by route-tier configuration) for every turn.
+2. Splinter bounds prompt size at the adaptive budget (≤6k tokens by route-tier configuration) for every turn.
 3. Therefore prompt size, and per-token generation cost, is approximately constant.
 4. *Conclusion:* throughput is flat.
 
-**Measurement:** Record tokens/sec at turns 10, 50, 100, 200, 500 under (a) naive FIFO and (b) strata-curated context, same model, same hardware, same conversation.
-Tokens/sec is the model's *decode* rate, recorded from the backend's `usage.completion_tokens` divided by generation time, not turns/sec, which conflates prefill and strata overhead. Turns whose wall-clock generation time is an extreme outlier (>5× the median) are excluded, since on laptops such spans correspond to OS sleep / idle suspend and would distort the comparison.
+**Measurement:** Record tokens/sec at turns 10, 50, 100, 200, 500 under (a) naive FIFO and (b) splinter-curated context, same model, same hardware, same conversation.
+Tokens/sec is the model's *decode* rate, recorded from the backend's `usage.completion_tokens` divided by generation time, not turns/sec, which conflates prefill and splinter overhead. Turns whose wall-clock generation time is an extreme outlier (>5× the median) are excluded, since on laptops such spans correspond to OS sleep / idle suspend and would distort the comparison.
 
-**Falsification:** Tokens/sec drops >10% between turn 10 and turn 500 under the strata condition, OR strata throughput is not meaningfully higher than naive at turn 500.
+**Falsification:** Tokens/sec drops >10% between turn 10 and turn 500 under the splinter condition, OR splinter throughput is not meaningfully higher than naive at turn 500.
 
 **Result (2026-08-22/23):** **PASS (live).** Over the longest measured span, a 308-turn live conversation (`runs/20260820_223616`, interrupted by OS sleep, sleep-contaminated turns excluded), decode tps stayed **flat: 14.5 → 15.5 (+6.7%)**, within the ±10% band. The 500-turn stability test (500+ turns) additionally verified bounded memory (peak RSS ≈34.7 MB, no OOM). Scope note: the fixture's longest conversation is ~44 turns, so the 500-turn single-conversation protocol remains partially covered by the 308-turn live span + the 500-turn stability run; a full 500-turn single-conversation replay is open tooling, not an open question about the mechanism.
 
 ### P2: Retrieval Precision Hypothesis
-**Prediction:** Strata achieves ≥85% retrieval precision and ≥90% recall on a labeled test set of 200 query-chunk pairs extracted from long conversations, versus the near-chance precision of FIFO for chunks older than the window boundary.
+**Prediction:** Splinter achieves ≥85% retrieval precision and ≥90% recall on a labeled test set of 200 query-chunk pairs extracted from long conversations, versus the near-chance precision of FIFO for chunks older than the window boundary.
 
 **Logic chain:**
 1. FIFO retains chunks by recency, not relevance.
@@ -281,26 +281,26 @@ Tokens/sec is the model's *decode* rate, recorded from the backend's `usage.comp
 3. Relevance-ranked selection therefore concentrates on relevant chunks.
 4. *Conclusion:* precision/recall exceed recency-based selection.
 
-**Measurement:** Use auditor-labeled ground truth (Postulate 4). Compute precision = relevant_retrieved/total_retrieved; recall = relevant_retrieved/total_relevant over the test set. In this repo, the canonical measurement is the *deterministic* diagnostic (`experiments.retrieval_diagnostic`), the synthetic corpus carries its own ground truth (each user query has a known assistant answer), so P2 is computed from the fixture's answer facts appearing in the assembled context, with no LLM-auditor confound. Because a live generative model states its own (often different) facts, recall is scored **only on facts the model actually stated in stored chunks** (hedges filtered, mirroring the strata's store); `ingestion_rate` (fidelity) and `perfect_hive_ceiling` bound the raw fixture-based figure. (An early "auditor precision" implementation hardcoded `predicted_relevant=True`, making recall/false-eviction trivially 100%/0%; that block is retained in reports for compatibility but is not the evidence.)
+**Measurement:** Use auditor-labeled ground truth (Postulate 4). Compute precision = relevant_retrieved/total_retrieved; recall = relevant_retrieved/total_relevant over the test set. In this repo, the canonical measurement is the *deterministic* diagnostic (`experiments.retrieval_diagnostic`), the synthetic corpus carries its own ground truth (each user query has a known assistant answer), so P2 is computed from the fixture's answer facts appearing in the assembled context, with no LLM-auditor confound. Because a live generative model states its own (often different) facts, recall is scored **only on facts the model actually stated in stored chunks** (hedges filtered, mirroring the splinter's store); `ingestion_rate` (fidelity) and `perfect_hive_ceiling` bound the raw fixture-based figure. (An early "auditor precision" implementation hardcoded `predicted_relevant=True`, making recall/false-eviction trivially 100%/0%; that block is retained in reports for compatibility but is not the evidence.)
 
 **Falsification:** Either metric falls below target on two independent labeled sets.
 
-**Result (2026-08-22/23):** **SPLIT: recall PASS, precision FAIL (as written, the conjunction is falsified on precision).** The recall clause is met: deterministic P2 recall **90.3% live** (`20260822_211131`, ≥90% target), **93.9%** on the isolated-store replay, and **93.5% stated-facts recall** (`20260822_live3`; `ingestion_rate` 33.9-48.4%, the model-fidelity bound on what any strata could retrieve; `perfect_hive_ceiling` reported alongside). The precision clause is **not met**: sentence-proxy precision 10.7% live, and no selection threshold reaches ≥85% precision at ≥90% recall on the hard same-domain pairs (best ≈36-40%), the encoder ceiling measured across six encoders (Threat 6). Two consequences, both documented: (1) the assembled context contains many irrelevant chunks, the deterministic fact-presence evidence (90.3% recall) shows the stated facts are in the context, and the auditor's sufficiency verdict corroborates (softly: it sees the model's answer and is the same model family, Threat 1), but precision remains the architecture's open efficiency question; the recall half of P2 is closed, and the §8 table reports both halves. The deterministic diagnostic (`experiments.retrieval_diagnostic`) is the canonical evidence; the auditor-based `ground_truth` precision block is confounded (hardcoded `predicted_relevant=True`) and retained only for schema compatibility.
+**Result (2026-08-22/23):** **SPLIT: recall PASS, precision FAIL (as written, the conjunction is falsified on precision).** The recall clause is met: deterministic P2 recall **90.3% live** (`20260822_211131`, ≥90% target), **93.9%** on the isolated-store replay, and **93.5% stated-facts recall** (`20260822_live3`; `ingestion_rate` 33.9-48.4%, the model-fidelity bound on what any splinter could retrieve; `perfect_hive_ceiling` reported alongside). The precision clause is **not met**: sentence-proxy precision 10.7% live, and no selection threshold reaches ≥85% precision at ≥90% recall on the hard same-domain pairs (best ≈36-40%), the encoder ceiling measured across six encoders (Threat 6). Two consequences, both documented: (1) the assembled context contains many irrelevant chunks, the deterministic fact-presence evidence (90.3% recall) shows the stated facts are in the context, and the auditor's sufficiency verdict corroborates (softly: it sees the model's answer and is the same model family, Threat 1), but precision remains the architecture's open efficiency question; the recall half of P2 is closed, and the §8 table reports both halves. The deterministic diagnostic (`experiments.retrieval_diagnostic`) is the canonical evidence; the auditor-based `ground_truth` precision block is confounded (hardcoded `predicted_relevant=True`) and retained only for schema compatibility.
 
 ### P3: Context Sufficiency Hypothesis
-**Prediction:** For equal token budgets, auditor-rated "context sufficiency" is higher for strata-assembled context than for the last-B-tokens FIFO window, on ≥80% of turns sampled in long conversations.
+**Prediction:** For equal token budgets, auditor-rated "context sufficiency" is higher for splinter-assembled context than for the last-B-tokens FIFO window, on ≥80% of turns sampled in long conversations.
 
 **Logic chain:**
 1. Equal budget ⟹ equal compute cost of generation.
-2. Strata selects chunks with higher predicted mutual information with the query.
+2. Splinter selects chunks with higher predicted mutual information with the query.
 3. Higher mutual information ⟹ higher sufficiency, on average.
 4. *Conclusion:* sufficiency is strictly higher for equal cost.
 
-**Measurement:** Paired A/B on the same conversations; auditor rates sufficiency (1-5) blinded to condition; report % of turns where strata ≥ FIFO. In this repo, sufficiency is measured **deterministically** (no auditor confound): a turn's context is sufficient when it contains the fixture ground-truth answer's fact terms, and the paired comparison is strata-assembled context vs the last-4k-token FIFO window of the same history. The denominator is turns where the answer's facts were actually in history (first-mention turns excluded, no fact exists for either system), matching the deterministic P2 diagnostic's stated-facts reframe.
+**Measurement:** Paired A/B on the same conversations; auditor rates sufficiency (1-5) blinded to condition; report % of turns where splinter ≥ FIFO. In this repo, sufficiency is measured **deterministically** (no auditor confound): a turn's context is sufficient when it contains the fixture ground-truth answer's fact terms, and the paired comparison is splinter-assembled context vs the last-4k-token FIFO window of the same history. The denominator is turns where the answer's facts were actually in history (first-mention turns excluded, no fact exists for either system), matching the deterministic P2 diagnostic's stated-facts reframe.
 
-**Result (2026-08-22):** **PASS.** On the 15 full-length long conversations (628 measurable turns, 320 retrievable, 308 first-mention excluded), strata ≥ FIFO on **85.1%** of the 175 fact-retrievable turns (strata-only 115 vs FIFO-only 26, both 34; 145 neither, facts never in history). Direction is decisive (4.4:1) and the ≥80% paired-A/B bar is met. Regression-locked in `tests/integration/test_protocol.py::test_p3_long_conversations_close_sufficiency`.
+**Result (2026-08-22):** **PASS.** On the 15 full-length long conversations (628 measurable turns, 320 retrievable, 308 first-mention excluded), splinter ≥ FIFO on **85.1%** of the 175 fact-retrievable turns (splinter-only 115 vs FIFO-only 26, both 34; 145 neither, facts never in history). Direction is decisive (4.4:1) and the ≥80% paired-A/B bar is met. Regression-locked in `tests/integration/test_protocol.py::test_p3_long_conversations_close_sufficiency`.
 
-**Falsification:** Strata wins on <80% of turns (i.e., the selection advantage is not reliably realizable).
+**Falsification:** Splinter wins on <80% of turns (i.e., the selection advantage is not reliably realizable).
 
 ### P4: Domain-Dependent Decay Curve
 **Prediction:** The optimal initial decay multiplier is domain-dependent: code-heavy conversations and prose conversations yield different optima (estimated: prose 1.4-1.8; code 1.8-2.2), and each is discoverable by replay search.
@@ -402,7 +402,7 @@ Code (young facts, no stale penalty) tolerates aggressive decay, recall holds ab
 
 **Falsification:** The classifier beats heuristics by >15 points of accuracy (i.e., surface signals are weakly predictive and the "start simple" strategy is wrong).
 
-**Result (2026-08-22/23):** **PASS (live).** Heuristic routing accuracy was **100%** on the labeled routing decisions of the live strata-vs-baselines run (`20260822_211131`; auditor-optimal tiers matched every turn). The trained-classifier comparison remains covered by the offline routing/classifier tests; the ≥85% absolute floor holds on the measured set.
+**Result (2026-08-22/23):** **PASS (live).** Heuristic routing accuracy was **100%** on the labeled routing decisions of the live splinter-vs-baselines run (`20260822_211131`; auditor-optimal tiers matched every turn). The trained-classifier comparison remains covered by the offline routing/classifier tests; the ≥85% absolute floor holds on the measured set.
 
 ### P9: Densest-Duplicate Hypothesis
 **Prediction:** When semantically duplicate chunks are found (cosine > 0.92), retaining the information-densest version, rather than the most recent, improves downstream task quality per token, measured by auditor sufficiency.
@@ -439,24 +439,24 @@ Code (young facts, no stale penalty) tolerates aggressive decay, recall holds ab
 **Falsification:** No sufficiency improvement within 3 turns, or reset causes a regression (e.g., discarding genuinely cross-cutting context).
 
 ### P11: Comb Resurrection Hypothesis (PASS deterministically 2026-08-24; live validation COMPLETED 2026-08-24)
-**Prediction:** Archiving store-evicted chunks that the strata once curated (relevance history or remembrance-saved decay multiplier) to a per-conversation SSD tier (the "comb"), and resurrecting them as budget-competitive candidates when their topic returns, achieves ≥90% recall on topic-return turns where the no-archival strata is measurably at 0%.
+**Prediction:** Archiving store-evicted chunks that the splinter once curated (relevance history or remembrance-saved decay multiplier) to a per-conversation SSD tier (the "comb"), and resurrecting them as budget-competitive candidates when their topic returns, achieves ≥90% recall on topic-return turns where the no-archival splinter is measurably at 0%.
 
 **Logic chain:**
 1. The active store's eviction (LRU) and the stale factor (×0.5 at age > 20) permanently remove old-topic facts from the budget, measured walls (P4: "old facts cannot be recalled by lowering the multiplier; only by the remembrance/re-reference mechanics").
 2. A topic that returns after a long absence therefore *cannot* be answered from the active store; the model hedges because the answer is genuinely gone.
-3. The comb preserves exactly the chunks the strata once judged relevant, on disk (per-conversation, bounded by curation history).
+3. The comb preserves exactly the chunks the splinter once judged relevant, on disk (per-conversation, bounded by curation history).
 4. On resurrection, comb candidates compete on *raw relevance* (exempt from the stale factor and drift penalties; explicit recalls, not zombies) for the same token budget.
 5. *Conclusion:* topic-return recall goes from structurally 0% to retrievable.
 
-**Measurement:** Deterministic, no auditor: synthetic conversations with structure A (facts established) → B (≥ 21 turns, pushing A past the stale wall) → A *returns* with a new query needing an old fact; fact-term presence in the assembled context (the P2 diagnostic's math) with comb enabled vs disabled, budget held fixed (the P4 confound-isolation). The `--return` fixture corpus is the live-benchmark path. The test shapes follow the independent SHADOW-250M archive benchmark [[10]](#ref-10), mapped onto the comb's clauses: *needle with look-alike distractors* → the crowding clause (resurrected chunks must not displace relevant store chunks), *scattered story facts, latest wins* → topic-return recall (their measured 1.00 at 1M-10M archive is the external reference point for the ≥90% target), *multi-key needles* → multi-fact resurrection (a returned topic asking for several old facts at once), and *fact QA with abstain* → the hedge check (a returned topic whose fact is genuinely absent must not fabricate). SHADOW's own limitation, trained-in retrieval that cannot reason across the archive, two-hop chains degrading at 100M tokens [[10]](#ref-10), is the separation argument (§1.5): the comb is external, so its retrieval remains inspectable and its candidates stay within the strata's bounded budget.
+**Measurement:** Deterministic, no auditor: synthetic conversations with structure A (facts established) → B (≥ 21 turns, pushing A past the stale wall) → A *returns* with a new query needing an old fact; fact-term presence in the assembled context (the P2 diagnostic's math) with comb enabled vs disabled, budget held fixed (the P4 confound-isolation). The `--return` fixture corpus is the live-benchmark path. The test shapes follow the independent SHADOW-250M archive benchmark [[10]](#ref-10), mapped onto the comb's clauses: *needle with look-alike distractors* → the crowding clause (resurrected chunks must not displace relevant store chunks), *scattered story facts, latest wins* → topic-return recall (their measured 1.00 at 1M-10M archive is the external reference point for the ≥90% target), *multi-key needles* → multi-fact resurrection (a returned topic asking for several old facts at once), and *fact QA with abstain* → the hedge check (a returned topic whose fact is genuinely absent must not fabricate). SHADOW's own limitation, trained-in retrieval that cannot reason across the archive, two-hop chains degrading at 100M tokens [[10]](#ref-10), is the separation argument (§1.5): the comb is external, so its retrieval remains inspectable and its candidates stay within the splinter's bounded budget.
 
 **Retrieval-layer measurement (`experiments/comb_probe.py`, real L3-v2 drone, fixture ground truth, 2026-08-24):** the make-or-break questions were answered before building the corpus: (1) **lexical-overlap ranking beats the drone at every k** on return turns (recall@3 76.4% vs 69.8% on lexically retrievable turns, and ~300× cheaper, the drone's semantic smoothing pulls in same-topic-but-wrong chunks, the same data-structural ceiling as Threat 6); the comb now ranks lexically. (2) **Only 45% of the current fixture's return turns are lexically retrievable**, 55% are artifact-labeled: the answer-map's first-occurrence rule labels old-topic chunks as "relevant" to composition queries that never lexically name them ("How does rollbacks fit with order schema…?"). Those are corpus-design misses, not retrieval failures, the `--return` corpus uses SHADOW-style *pure-fact* return questions ("What did we settle for {aspect} on the {feature}?") that lexically name the old decision. (3) **Crowding is mild:** archive records score p50 0.20 vs relevant store chunks 0.54.
 
-**Deterministic protocol verdict (`suite.p11()`, real L3-v2 drone, return corpus, 2026-08-24): PASS.** All four falsification clauses hold on the deterministic replay: under budget pressure (max_chunks=8, fixed 1000-token budget) the comb raises return-turn recall from 20% (no-comb) and 20% (keep-last-N) to **100% (100% on lexically retrievable turns)**, with no regression on the full replay (100% vs 100%) and no crowding on non-return turns (56.4% both). Three measurement findings shaped the mechanism (all regression-locked): (1) **selection is curation**, the remembrance pass only fires on overflow candidates and `relevance_history` was never populated, so `comb_relevant_only` archived nothing; the assembler now records every selected chunk's history. (2) **The gate must not be fooled by query echoes**, template-sibling question chunks score ~1.0 but carry no facts and kept the gate closed on every return turn after the first; `Strata._comb_gate_fires` now also fires when the store's best match shares ≥80% of its words with the query. (3) **Gate calibration is boost-shifted**, the pipeline drone's vocab boost (+0.15) moves the probe's raw-cosine calibration up; `comb_gate_threshold` is 0.85 (with the echo test covering the ~1.0 echoes), `comb_top_k` 5. The ≥90% target is met at 100%.
+**Deterministic protocol verdict (`suite.p11()`, real L3-v2 drone, return corpus, 2026-08-24): PASS.** All four falsification clauses hold on the deterministic replay: under budget pressure (max_chunks=8, fixed 1000-token budget) the comb raises return-turn recall from 20% (no-comb) and 20% (keep-last-N) to **100% (100% on lexically retrievable turns)**, with no regression on the full replay (100% vs 100%) and no crowding on non-return turns (56.4% both). Three measurement findings shaped the mechanism (all regression-locked): (1) **selection is curation**, the remembrance pass only fires on overflow candidates and `relevance_history` was never populated, so `comb_relevant_only` archived nothing; the assembler now records every selected chunk's history. (2) **The gate must not be fooled by query echoes**, template-sibling question chunks score ~1.0 but carry no facts and kept the gate closed on every return turn after the first; `Splinter._comb_gate_fires` now also fires when the store's best match shares ≥80% of its words with the query. (3) **Gate calibration is boost-shifted**, the pipeline drone's vocab boost (+0.15) moves the probe's raw-cosine calibration up; `comb_gate_threshold` is 0.85 (with the echo test covering the ~1.0 echoes), `comb_top_k` 5. The ≥90% target is met at 100%.
 
 **Falsification:** Topic-return recall with the comb < 90%, OR the comb's resurrected chunks crowd out relevant active-store chunks (sufficiency regression on non-return turns), OR the comb cannot beat a plain "keep the last N old chunks in the store" baseline.
 
-**Live validation (2026-08-24):** the live `--return` corpus path completed end-to-end (`runs/p11_live_20260824`, 6 conversations / 192 turns, `prism-ml/bonsai-27b`, comb enabled): the comb archived **64 once-curated chunks** across 5 conversations during the live run (verified from the per-conversation JSONL archives). The run's retrieval recall was **79.8%** on stated facts (ingestion_rate 28.8%, perfect-strata ceiling 18.2%, bonsai stated few of the corpus's canonical facts), precision 26.5%, post-run PES 61.66 YELLOW. The deterministic falsification clauses (100% vs 20% no-comb / keep-last-N under budget pressure; no crowding; no full-replay regression) are unchanged. A reporting gap found along the way (comb stats were not checkpointed, so a resumed run's report lost its `comb` block) is fixed (the checkpoint now persists `comb_stats_history` + `comb_stats`).
+**Live validation (2026-08-24):** the live `--return` corpus path completed end-to-end (`runs/p11_live_20260824`, 6 conversations / 192 turns, `prism-ml/bonsai-27b`, comb enabled): the comb archived **64 once-curated chunks** across 5 conversations during the live run (verified from the per-conversation JSONL archives). The run's retrieval recall was **79.8%** on stated facts (ingestion_rate 28.8%, perfect-splinter ceiling 18.2%, bonsai stated few of the corpus's canonical facts), precision 26.5%, post-run PES 61.66 YELLOW. The deterministic falsification clauses (100% vs 20% no-comb / keep-last-N under budget pressure; no crowding; no full-replay regression) are unchanged. A reporting gap found along the way (comb stats were not checkpointed, so a resumed run's report lost its `comb` block) is fixed (the checkpoint now persists `comb_stats_history` + `comb_stats`).
 
 ### P12: Store-Time Fact Distillation Hypothesis (DRAFT 2026-08-25, protocol only)
 
@@ -507,7 +507,7 @@ To make all predictions reproducible on consumer hardware with open weights, we 
 **Hardware baseline:** Windows 11 (native; WSL2 optional for vLLM) on a single consumer GPU
 with ≥16 GB VRAM (e.g., RTX 4090); 32 GB system RAM. The environment this project was
 actually measured on: AMD Radeon RX 7900 XT (20 GB), LM Studio / llama.cpp as the sole
-live backend; the strata itself is CPU-resident (drones, scoring, assembly, drift, dedup;
+live backend; the splinter itself is CPU-resident (drones, scoring, assembly, drift, dedup;
 no GPU code), so the measurements transfer across GPU vendors.
 
 **Models (fixed for replication; the measured primary differs):**
@@ -522,7 +522,7 @@ no GPU code), so the measurements transfer across GPU vendors.
 
 **Backend (dual):**
 - **LM Studio (llama.cpp [[17]](#ref-17)):** OpenAI-compatible API on `localhost:1234`; the **measured**
-  host. No surgical KV-cache API; benefits from the strata via the smaller compressed
+  host. No surgical KV-cache API; benefits from the splinter via the smaller compressed
   context + a byte-stable pinned prefix that llama.cpp's automatic prefix caching reuses.
 - **vLLM (PagedAttention [[5]](#ref-5)):** OpenAI-compatible API on `localhost:8000`; enables surgical
   page-level KV-cache edits. The `VLLMBackend` is **written and mock-tested but not
@@ -530,7 +530,7 @@ no GPU code), so the measurements transfer across GPU vendors.
   intended replication target (see Threat 7 for the prefix-cache attribution caveat).
 
 **Harness interop:** where the studio harness already solves a problem
-(provider/endpoint resolution, health tracking, rollback), the strata consumes it through the
+(provider/endpoint resolution, health tracking, rollback), the splinter consumes it through the
 documented integration seam (`docs/INTEGRATE.md`) rather than re-implementing it.
 
 **Test corpus (fixed):**
@@ -544,8 +544,8 @@ documented integration seam (`docs/INTEGRATE.md`) rather than re-implementing it
 **Labeling:** single human annotation as the P7 reference (auditor-human agreement per P7, with an optional second rater for inter-rater robustness); auditor (Postulate 4) for bulk labeling; agreement checks per P7.
 
 **Baselines (both must be measured):**
-1. *Naive FIFO:* last-B-tokens rolling window, no strata.
-2. *No-strata truncation:* same model, fixed 4k truncation, no curation.
+1. *Naive FIFO:* last-B-tokens rolling window, no splinter.
+2. *No-splinter truncation:* same model, fixed 4k truncation, no curation.
 
 **Ablation set (component attribution):** full system; minus decay; minus drones (random filtering); minus remembrance; minus dedup; minus adaptive budget (fixed 4k); minus drift; baseline. Each run on the full test corpus.
 
@@ -558,7 +558,7 @@ documented integration seam (`docs/INTEGRATE.md`) rather than re-implementing it
 | Metric | Naive FIFO (baseline) | S3/S5 targets (design) | Measured (2026-08-23) |
 |---|---|---|---|
 | Retrieval precision | near-chance past window | ≥70% / ≥85% | **10.7%** (sentence proxy) / **36-40%** (best-prec @ ≥90% recall, Threat 6); auditor rated context sufficient on 100% of sampled turns, a *soft* verdict (the auditor sees the model's answer; Threat 1 circularity), not independent evidence |
-| Retrieval recall | n/a (FIFO) | ≥75% / ≥90% | **90.3%** live (deterministic P2, run 211131); **75.7%** on the full 20-conv evidence run (`20260823_014521`, ingestion_rate 54.3%, perfect-strata ceiling 45.1%, stated-facts bound); **93.5%** stated-facts (live3); ingestion-bound (`ingestion_rate` 48.4% / 33.9%) |
+| Retrieval recall | n/a (FIFO) | ≥75% / ≥90% | **90.3%** live (deterministic P2, run 211131); **75.7%** on the full 20-conv evidence run (`20260823_014521`, ingestion_rate 54.3%, perfect-splinter ceiling 45.1%, stated-facts bound); **93.5%** stated-facts (live3); ingestion-bound (`ingestion_rate` 48.4% / 33.9%) |
 | False eviction rate | ~30% | <15% / <5% | unmeasured, the auditor-based block is confounded (hardcoded `predicted_relevant=True` ⇒ 0% by construction; see P2 note) |
 | Routing accuracy | n/a | ≥80% / ≥92% | **100%** (P8, live) |
 | Added per-turn latency | 0 ms | <50 / <30 ms | **≈18 ms** (3.4 ms assembly + ~15 ms drone scoring; negligible vs. seconds of decode) |
@@ -566,13 +566,13 @@ documented integration seam (`docs/INTEGRATE.md`) rather than re-implementing it
 | PES | ~30 | ≥65 / ≥80 | **80.0 GREEN** (211131, post-run; latency component floored at 0 by the ms-formula) vs rolling **12.2** / FIFO **11.6**; **73.1 YELLOW** on the full 20-conv evidence run (014521) |
 | OOM events (500-turn) | likely | 0 / 0 | **0** (500+ turns; peak RSS 34.7 MB) |
 
-*Sources: live runs `20260822_211131` (strata-vs-baselines), `20260822_live3` (stated-facts reframe), `20260823_014521` (the **full 20-conv evidence run**, 673 turns, PES 73.1, deterministic P2 75.7% stated-facts recall at 54.3% ingestion, whose missing P1-P11 protocol phase was completed standalone on 2026-08-24 and **reproduced every verdict**: P1/P3/P4/P8/P9/P11 PASS, P2/P6/P10 FAIL, P5/P7 SKIP-with-own-PASS), the B-avenue encoder probe, and the 500-turn stability test. The precision row is the measured encoder ceiling (Threat 6): the context is fatter than needed, the deterministic fact-presence evidence (P2 recall 90.3% live / 75.7% on 20 convs) shows the stated facts are in the context, and the auditor's "100% sufficient" verdict is a corroborating soft signal (it sees the model's answer; Threat 1), not independent evidence of correctness.*
+*Sources: live runs `20260822_211131` (splinter-vs-baselines), `20260822_live3` (stated-facts reframe), `20260823_014521` (the **full 20-conv evidence run**, 673 turns, PES 73.1, deterministic P2 75.7% stated-facts recall at 54.3% ingestion, whose missing P1-P11 protocol phase was completed standalone on 2026-08-24 and **reproduced every verdict**: P1/P3/P4/P8/P9/P11 PASS, P2/P6/P10 FAIL, P5/P7 SKIP-with-own-PASS), the B-avenue encoder probe, and the 500-turn stability test. The precision row is the measured encoder ceiling (Threat 6): the context is fatter than needed, the deterministic fact-presence evidence (P2 recall 90.3% live / 75.7% on 20 convs) shows the stated facts are in the context, and the auditor's "100% sufficient" verdict is a corroborating soft signal (it sees the model's answer; Threat 1), not independent evidence of correctness.*
 
-![Figure 5: Post-run PES: strata vs the no-strata baselines on the same conversations (run 20260822_211131).](figures/pes.png)
+![Figure 5: Post-run PES: splinter vs the no-splinter baselines on the same conversations (run 20260822_211131).](figures/pes.png)
 
 ![Figure 6: The adaptive budget (p50) is invariant across 8k/16k/32k model windows: the route-tier ranges bind, never the window cap.](figures/budget.png)
 
-*Figures 5-6: The headline comparison (strata PES 80.0 GREEN vs rolling 12.2 / FIFO 11.6) and the budget-ceiling measurement (byte-identical behavior at 8k/16k/32k windows).*
+*Figures 5-6: The headline comparison (splinter PES 80.0 GREEN vs rolling 12.2 / FIFO 11.6) and the budget-ceiling measurement (byte-identical behavior at 8k/16k/32k windows).*
 
 ---
 
@@ -601,7 +601,7 @@ documented integration seam (`docs/INTEGRATE.md`) rather than re-implementing it
     *Figure 7: The B avenue: top-K retrieval precision for the stock, scaled (bge-m3), and task-tuned encoders, all on the same curve (data: table above).* **Conclusion: the ceiling is data-structural, not encoder-capacity.** The remedy is no longer "find a better encoder", the remaining options are (a) accept the ceiling (the context is fatter than needed, but the deterministic fact-presence evidence (P2 recall 90.3% live) shows the facts the model stated are in the context; the auditor's "100% sufficient" verdict is a corroborating *soft* signal (it sees the model's answer and is the same model family, Threat 1), not independent evidence of correctness) or (b) change the *task definition* (e.g., a classifier over chunk classes rather than cosine ranking).
 
     **Matryoshka probe (2026-08-23):** bge-m3 truncated to 256 dimensions reproduces the full 1024-dim curve *exactly* on the same held-out pairs, the variable-size-embedding (MRL) technique [[9]](#ref-9) costs nothing on this set, confirming the sentence-transformers efficiency claim (smaller stored vectors, identical ranking) on our corpus.
-7. **Prefix-cache attribution.** On backends with automatic prefix caching (LM Studio / llama.cpp), flat throughput is co-produced by the strata's bounded context *and* a byte-stable pinned system prefix whose KV is reused every turn. The naive FIFO baseline's window shifts each turn and never reuses KV, so the P1 comparison is "curation + stable prefix" vs. "shifting window" rather than raw context length. The falsification conditions are unchanged, but the throughput claim is attributable to both mechanisms, and replication on a backend without prefix caching (e.g., vLLM without pinned pages) may observe a smaller gap.
+7. **Prefix-cache attribution.** On backends with automatic prefix caching (LM Studio / llama.cpp), flat throughput is co-produced by the splinter's bounded context *and* a byte-stable pinned system prefix whose KV is reused every turn. The naive FIFO baseline's window shifts each turn and never reuses KV, so the P1 comparison is "curation + stable prefix" vs. "shifting window" rather than raw context length. The falsification conditions are unchanged, but the throughput claim is attributable to both mechanisms, and replication on a backend without prefix caching (e.g., vLLM without pinned pages) may observe a smaller gap.
 8. **Evaluation-harness confounds.** Live validation surfaced two harness-level failure modes that look like architecture failures if unaddressed: (a) *cross-conversation contamination*, running multiple conversations through one context store lets earlier conversations' chunks crowd out the current one's, collapsing retrieval precision; conversations must be isolated per store; (b) *hedge-reply poisoning*, if the model's "no information" refusals are stored as chunks, they are later retrieved *as context* and perpetuate refusal, and a strict "answer only from context" system prompt forces exactly those refusals on first-mention turns; refusals should be filtered from the store and the prompt should permit clearly-marked general-knowledge fallback so facts can be ingested.
 9. **Decay-measurement interactions (2026-08-23).** Two properties of the decay/budget machinery shaped the P4 measurement and are themselves findings: (a) the adaptive budget's high-relevance feedback (bigger store → bigger budget → looser cutoff) washes the decay multiplier's effect out entirely, the P4 sweep holds the budget fixed to isolate it; (b) the stale factor (`×0.5` at age > 20) makes facts older than 20 turns unretrievable at every candidate multiplier, lowering the multiplier cannot recover them; only the remembrance/re-reference mechanics can. Both are regression-locked.
 
@@ -610,10 +610,10 @@ documented integration seam (`docs/INTEGRATE.md`) rather than re-implementing it
 ## 10. Open Questions
 
 1. Does the optimal decay curve converge across domains, or is per-domain tuning mandatory (P4)? **Partially answered (2026-08-23):** on the long-horizon corpus the domains separate beyond the 0.2 band (code m90 1.8 vs prose m90 1.2, P4 PASS), but the horizon corpus is synthetic; real logged conversations, and the stale-factor regime's interaction with any multiplier, remain open.
-2. At what conversation length does strata-curated context *stop* dominating FIFO (i.e., is there a crossover point below which the added latency is pure overhead)?
+2. At what conversation length does splinter-curated context *stop* dominating FIFO (i.e., is there a crossover point below which the added latency is pure overhead)?
 3. Does the remembrance pass interact constructively with the drift reset, or do they fight (saved old-topic content vs. reset-to-new-topic)?
 4. ~~Can the auditor labels be fed back to *distill* the medium drone's capability into the ultra-small drone, eliminating the escalation tier over time?~~ **Superseded (2026-08-23):** P6 FAIL and the B avenue measured that no fleet encoder separates same-domain relevance and training/tuning does not break the ceiling, distillation of a non-discriminating capability is moot. The live open question is now Threat 6's option (b): a storage-time *classifier over chunk classes* replacing cosine ranking.
-5. Does strata-curated context measurably reduce hallucination on factual consistency checks, or only improve relevance?
+5. Does splinter-curated context measurably reduce hallucination on factual consistency checks, or only improve relevance?
 
 ---
 
@@ -642,11 +642,11 @@ The architecture in this paper ships as a working system, not just results. Hive
 - **Exact token budgets**: the model's own `tokenizer.json` can replace the heuristic count, so budget and utilization figures are exact when it matters.
 
 **The Studio** (the HiveBench Studio sidecar + dsh plugins):
-- A local-first FastAPI sidecar exposes the strata over HTTP (`/v1/strata/turn|curate|observe`, `/v1/protocol/run`, `/v1/report/*`, `/v1/engines`, model management), the seam any shell or web UI plugs into.
-- `dsh-strata` / `dsh-bench` plugins integrate the curation and the protocol surface into a DeepSeek-Harness-based agent shell: every agent step is curated, replies are observed back into the store, and `/bench` launches and summarizes protocol runs without leaving the agent.
+- A local-first FastAPI sidecar exposes the splinter over HTTP (`/v1/splinter/turn|curate|observe`, `/v1/protocol/run`, `/v1/report/*`, `/v1/engines`, model management), the seam any shell or web UI plugs into.
+- `dsh-splinter` / `dsh-bench` plugins integrate the curation and the protocol surface into a DeepSeek-Harness-based agent shell: every agent step is curated, replies are observed back into the store, and `/bench` launches and summarizes protocol runs without leaving the agent.
 - A model-management layer (its own llama.cpp server lifecycle + live Hugging Face acquisition) means the Studio is not tied to a specific launcher application.
 
-**What this means for local LLM use.** The strata itself is CPU-resident and engine-agnostic: it curates for any backend through the OpenAI-compatible seam, so the measured benefits (flat throughput, fact survival, bounded memory, no KV spill, bounded per-turn token cost) transfer to any local or hosted model. The evaluation suite makes the claim self-auditing: any deployment can re-run the deterministic diagnostics and the live protocol against its own model and hardware, and the comparison tool reports whether the policy improved or regressed. One caveat, carried over from the body of the paper: selection *efficiency* (retrieval precision) is capped by the encoder ceiling (Threat 6), the system is explicit about what it optimizes and what it cannot.
+**What this means for local LLM use.** The splinter itself is CPU-resident and engine-agnostic: it curates for any backend through the OpenAI-compatible seam, so the measured benefits (flat throughput, fact survival, bounded memory, no KV spill, bounded per-turn token cost) transfer to any local or hosted model. The evaluation suite makes the claim self-auditing: any deployment can re-run the deterministic diagnostics and the live protocol against its own model and hardware, and the comparison tool reports whether the policy improved or regressed. One caveat, carried over from the body of the paper: selection *efficiency* (retrieval precision) is capped by the encoder ceiling (Threat 6), the system is explicit about what it optimizes and what it cannot.
 
 ---
 

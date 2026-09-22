@@ -1,8 +1,8 @@
-# Strata-Memory
+# Splinter-Memory
 
-[![CI](https://github.com/sky-is-green/strata-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sky-is-green/strata-memory/actions/workflows/ci.yml)
+[![CI](https://github.com/sky-is-green/splinter-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sky-is-green/splinter-memory/actions/workflows/ci.yml)
 
-**Strata-Memory** is an external, multi-agent context-curation layer for
+**Splinter-Memory** is an external, multi-agent context-curation layer for
 long-horizon LLM conversations. It sits between a user and a local LLM backend,
 filtering, scoring, compressing, and reassembling conversation history into a
 bounded, high-relevance context window for every turn, so a generative model
@@ -10,7 +10,7 @@ performs well over arbitrarily long conversations on consumer hardware.
 
 **HiveBench**, its evaluation suite and Studio sidecar, lives in the dedicated [hivebench](https://github.com/sky-is-green/hivebench) repo:
 the white paper's falsifiable predictions
-([P1-P11](STRATA-WHITE-PAPER.md#5-hypotheses-and-predictions)) as executable tests with
+([P1-P11](SPLINTER-WHITE-PAPER.md#5-hypotheses-and-predictions)) as executable tests with
 measured verdicts, an offline test suite, and the live benchmark harness.
 
 ## Quickstart
@@ -19,8 +19,8 @@ Requires Python 3.10+ and, for live runs, any OpenAI-compatible backend (LM Stud
 `llama-server` for you from GGUF files dropped into `models/gguf/`.
 
 ```powershell
-git clone https://github.com/sky-is-green/strata-memory.git
-cd strata-memory
+git clone https://github.com/sky-is-green/splinter-memory.git
+cd splinter-memory
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -e .   # the system: drones, cortex, retention, backends
 ```
@@ -31,7 +31,7 @@ The Studio sidecar and the evaluation suite live in the sibling [hivebench](http
 The full fresh-machine walkthrough (fixtures, live benchmark, troubleshooting)
 is `docs/INSTALL.md`; every claim below is reproduced by commands in these two checkouts.
 
-## Why Strata
+## Why Splinter
 
 The core idea is the white paper's *Separation Postulate*: small bidirectional
 "drone" encoders (fast, cheap, CPU-friendly) do the *comprehension*, scoring,
@@ -39,31 +39,31 @@ filtering, and routing context, while the primary generative LLM does the
 *generation*.
 
 **The headline measurement**: same 308+ turn conversations, same model,
-strata vs naive FIFO windowing (live run `20260822_211131`):
+splinter vs naive FIFO windowing (live run `20260822_211131`):
 
-- **[Strata ≥ FIFO on 85.1% of retrievable turns](STRATA-WHITE-PAPER.md#p3-context-sufficiency-hypothesis) (P3)**;
+- **[Splinter ≥ FIFO on 85.1% of retrievable turns](SPLINTER-WHITE-PAPER.md#p3-context-sufficiency-hypothesis) (P3)**;
   the direct head-to-head against the current standard
-- **[90.3% of the facts the model stated made it into context](STRATA-WHITE-PAPER.md#p2-retrieval-precision-hypothesis)** (P2), deterministic
+- **[90.3% of the facts the model stated made it into context](SPLINTER-WHITE-PAPER.md#p2-retrieval-precision-hypothesis)** (P2), deterministic
   diagnostic, ≥90% target; FIFO truncates and drops facts at its window
   limit
-- **[Flat generation speed across 308+ turns](STRATA-WHITE-PAPER.md#p1-constant-throughput-hypothesis)** (P1), 14.5 → 15.5 decode tps
+- **[Flat generation speed across 308+ turns](SPLINTER-WHITE-PAPER.md#p1-constant-throughput-hypothesis)** (P1), 14.5 → 15.5 decode tps
   (+6.7%), no context-bloat slowdown
 - All at ~3.4 ms assembly + ~15 ms drone scoring overhead per turn
 
-![Post-run PES: strata 80.0 GREEN vs rolling 12.2 / FIFO 11.6](figures/pes.png)
+![Post-run PES: splinter 80.0 GREEN vs rolling 12.2 / FIFO 11.6](figures/pes.png)
 
 *PES is the system's own pipeline-efficiency score (retrieval/routing/
 latency/throughput/utilization), a health signal, not a measure of answer
 quality. The head-to-head evidence above is what the claims rest on.*
 
-**Why Strata is a great addition to LLM use**
+**Why Splinter is a great addition to LLM use**
 
-- **Bounded cost, always.** The strata caps the context window regardless of
+- **Bounded cost, always.** The splinter caps the context window regardless of
   conversation length (adaptive budget: 1-3k tokens live), so per-turn cost and
   generation time stay flat instead of growing with history. And because KV
   compression is a *precision* axis while curation is a *selection* axis, the
   savings compound rather than compete: paired with a TurboQuant-class KV
-  quantizer (~3-4 bits, near-zero loss), a strata-curated context makes a
+  quantizer (~3-4 bits, near-zero loss), a splinter-curated context makes a
   50k-token conversation's cache ~150× smaller than raw history, selection
   multiplies precision on the surviving tokens (white paper §1.6).
 - **It drops in around your existing backend.** Any OpenAI-compatible endpoint
@@ -75,12 +75,12 @@ quality. The head-to-head evidence above is what the claims rest on.*
   quantization fills).
 - **The efficiency gap is measured, not claimed:**
 
-| Metric | Strata | Status quo (FIFO/rolling window) |
+| Metric | Splinter | Status quo (FIFO/rolling window) |
 |---|---|---|
 | Pipeline efficiency (PES, flagship live run) | **80.0 GREEN** | 12.2 / 11.6 |
-| [Decode speed over 308+ turns](STRATA-WHITE-PAPER.md#p1-constant-throughput-hypothesis) (P1) | **Flat** (14.5→15.5 tps, +6.7%) | Slows as context grows, then truncates |
-| [Stated-fact recall](STRATA-WHITE-PAPER.md#p2-retrieval-precision-hypothesis) (P2, deterministic) | **90.3%** | Facts dropped at window limit |
-| [Turns where strata ≥ FIFO](STRATA-WHITE-PAPER.md#p3-context-sufficiency-hypothesis) (P3) | **85.1%** | - |
+| [Decode speed over 308+ turns](SPLINTER-WHITE-PAPER.md#p1-constant-throughput-hypothesis) (P1) | **Flat** (14.5→15.5 tps, +6.7%) | Slows as context grows, then truncates |
+| [Stated-fact recall](SPLINTER-WHITE-PAPER.md#p2-retrieval-precision-hypothesis) (P2, deterministic) | **90.3%** | Facts dropped at window limit |
+| [Turns where splinter ≥ FIFO](SPLINTER-WHITE-PAPER.md#p3-context-sufficiency-hypothesis) (P3) | **85.1%** | - |
 | Paired A/B under window pressure (82 turns, live) | **84.1% overall; 87.5% vs 82.1% late-turn, once the window drops facts** | 84.1% while its window still holds everything |
 | Context utilization (p50) | **74.5%** | ~40% (fluff) |
 | Added latency per turn | **~18 ms** | 0 (but loses the facts) |
@@ -90,13 +90,13 @@ All numbers are the live runs recorded in the white paper's measured-outcome
 table (§8); PES is defined in §6. The paired A/B row is the fair-selection
 live measurement (bonsai-27b, identical replayed history for both arms,
 FIFO window capped at 1500 tokens to force truncation): at parity overall,
-with strict strata-only wins outnumbering FIFO-only 14:6 once the naive
+with strict splinter-only wins outnumbering FIFO-only 14:6 once the naive
 window starts dropping facts.
 
-![Context tokens delivered per turn: strata stays flat while unbounded history grows to 33k+ tokens](figures/token_growth.svg)
+![Context tokens delivered per turn: splinter stays flat while unbounded history grows to 33k+ tokens](figures/token_growth.svg)
 
 *Median context tokens per user turn across 721 live turns (two run bundles):
-the strata delivers a flat ~1.2-1.4k-token window regardless of session length,
+the splinter delivers a flat ~1.2-1.4k-token window regardless of session length,
 while the unbounded history it replaces reaches 33,500+ tokens by turn 40.*
 
 ## Why HiveBench
@@ -138,11 +138,11 @@ Because window size is not usable-context size: models under-use mid-window
 content (lost-in-the-middle), every turn pays for the whole history, and at
 the limit a rolling window blindly evicts exactly the early facts long
 conversations need (white paper §1.1). A bigger window moves the cliff; the
-strata removes the growth, feeding a flat 1-3k curated window at constant decode
+splinter removes the growth, feeding a flat 1-3k curated window at constant decode
 speed (P1) while stated-fact recall measures 90.3% (P2).
 
 **Is this just RAG?**
-RAG retrieves from an external corpus per query. The strata retrieves from *the
+RAG retrieves from an external corpus per query. The splinter retrieves from *the
 conversation itself*, continuously, through decay/dedup/drift retention
 policies, and composes with RAG rather than competing with it (white paper §2).
 
@@ -150,7 +150,7 @@ policies, and composes with RAG rather than competing with it (white paper §2).
 
 | Path | Contents |
 |---|---|
-| `strata/` | The system: cortex (routing, PES, congestion, e2e), sieve (drones), retention (**hygiene**, store, decay, comb, remembrance), focal (budget/assembly), membrane (dedup/drift), backend (LM Studio / OpenAI-compat / vLLM), auditor (async ground truth), mcp (server + tools) |
+| `splinter/` | The system: cortex (routing, PES, congestion, e2e), sieve (drones), retention (**hygiene**, store, decay, comb, remembrance), focal (budget/assembly), membrane (dedup/drift), backend (LM Studio / OpenAI-compat / vLLM), auditor (async ground truth), mcp (server + tools) |
 | sibling `../hivebench` | The evaluation suite + Studio sidecar — its own repository ([sky-is-green/hivebench](https://github.com/sky-is-green/hivebench)): `tests/`, `testing/`, `experiments/`, `harness/`, fixtures |
 | `docs/` | Install guide + integration guides (`INTEGRATE.md`: drop-in endpoint, Studio, DSH plugin, MCP) |
 
@@ -161,13 +161,13 @@ the services around it:
 
 | Layer | Module | Role |
 |---|---|---|
-| Membrane | `strata/membrane/` | Semantic dedup + topic-drift detection, before scoring |
-| Retention | `strata/retention/` | Chunk store with decay state, remembrance ladder, comb surplus tier (SSD archive) |
-| Sieve | `strata/sieve/` | Small CPU "drone" encoders score every candidate (~5 ms/query, no GPU) |
-| Focal | `strata/focal/` | Adaptive budget, relevance floor + per-chunk share cap (P1-FLOOR), assembly into a bounded window |
-| Cortex | `strata/cortex/` | Routing, congestion control, PES health, checkpoint/resume, e2e engine |
-| Auditor | `strata/auditor/` | Asynchronous ground truth: labels whether the assembled context was sufficient, after each turn (historical name: 'queen') |
-| MCP | `strata/mcp/` | `strata_search` / `strata_remember` tools on the sidecar; any MCP client (Studio, opencode, DSH) queries the same curated store |
+| Membrane | `splinter/membrane/` | Semantic dedup + topic-drift detection, before scoring |
+| Retention | `splinter/retention/` | Chunk store with decay state, remembrance ladder, comb surplus tier (SSD archive) |
+| Sieve | `splinter/sieve/` | Small CPU "drone" encoders score every candidate (~5 ms/query, no GPU) |
+| Focal | `splinter/focal/` | Adaptive budget, relevance floor + per-chunk share cap (P1-FLOOR), assembly into a bounded window |
+| Cortex | `splinter/cortex/` | Routing, congestion control, PES health, checkpoint/resume, e2e engine |
+| Auditor | `splinter/auditor/` | Asynchronous ground truth: labels whether the assembled context was sufficient, after each turn (historical name: 'queen') |
+| MCP | `splinter/mcp/` | `splinter_search` / `splinter_remember` tools on the sidecar; any MCP client (Studio, opencode, DSH) queries the same curated store |
 
 **Write-side hygiene is one pipeline.** Every chunk passes through
 `retention/hygiene.py` before fingerprinting: harness boilerplate stripped
@@ -233,28 +233,28 @@ Run from the sibling hivebench checkout: `python -m pytest tests/unit -q`, ~25 s
 **Works with any OpenAI-compatible harness.** Point opencode, Unsloth Studio,
 dsh, or your own tool at `http://localhost:8765/v1/openai/chat/completions` and
 every request gets curated context automatically. No code changes needed — just
-set the base URL and (optionally) an `X-Strata-Conversation` header for
+set the base URL and (optionally) an `X-Splinter-Conversation` header for
 per-project memory isolation.
 
 Three integration modes, from zero-code to deep:
 
 1. **OpenAI-compatible swap** (minutes) — point any client at the sidecar endpoint
-2. **Python facade** — import `strata` directly into your application
+2. **Python facade** — import `splinter` directly into your application
 3. **dsh plugin** — deepest integration for the deepseek-harness fork
 
 Full details in [`docs/INTEGRATE.md`](docs/INTEGRATE.md).
 
-`strata/` is self-contained; it never imports from the bench or the harness:
+`splinter/` is self-contained; it never imports from the bench or the harness:
 
 ```python
-from strata import Strata, StrataConfig, UltraSmallDrone, LMStudioBackend
+from splinter import Splinter, SplinterConfig, UltraSmallDrone, LMStudioBackend
 
-strata = Strata(
-    config=StrataConfig(),
+splinter = Splinter(
+    config=SplinterConfig(),
     ultra=UltraSmallDrone(),
     backend=LMStudioBackend(base_url="http://localhost:1234"),
 )
-result = strata.process_turn("what did we decide about auth?")
+result = splinter.process_turn("what did we decide about auth?")
 print(result.reply)
 ```
 
@@ -265,11 +265,11 @@ live in the [hivebench](https://github.com/sky-is-green/hivebench) repo — its 
 (everything runs from that checkout).
 
 See `docs/INSTALL.md` for the full setup and run guide, and
-`STRATA-WHITE-PAPER.md` §8 for the measured-outcome table behind every claim.
+`SPLINTER-WHITE-PAPER.md` §8 for the measured-outcome table behind every claim.
 
 ## Documentation
 
 - **`docs/INSTALL.md`**, full-stack install guide (system + benchmark + studio, fresh machine)
-- **`docs/INTEGRATE.md`**, using strata-memory inside OpenCode, dsh, or your own harness
-- **`STRATA-WHITE-PAPER.md`**, the theory: postulates, falsifiable predictions P1-P11 with measured verdicts (§8), the PES metric (§6), KV-compression landscape (§1.6), threats & limitations (§9)
-- **`STRATA-DIAGRAMS.md`**, visuals and measured charts
+- **`docs/INTEGRATE.md`**, using splinter-memory inside OpenCode, dsh, or your own harness
+- **`SPLINTER-WHITE-PAPER.md`**, the theory: postulates, falsifiable predictions P1-P11 with measured verdicts (§8), the PES metric (§6), KV-compression landscape (§1.6), threats & limitations (§9)
+- **`SPLINTER-DIAGRAMS.md`**, visuals and measured charts

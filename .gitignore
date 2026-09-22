@@ -39,7 +39,7 @@ models/
 *.npy
 *.npz
 cache/
-strata/sieve/cache/
+splinter/sieve/cache/
 *.h5
 
 # Trained / serialized artifacts
@@ -48,10 +48,10 @@ strata/sieve/cache/
 *.ckpt
 *.safetensors.bak
 
-# Runtime state (context store, decay matrix, strata checkpoints)
+# Runtime state (context store, decay matrix, splinter checkpoints)
 state/
 checkpoints/
-strata/retention/state/
+splinter/retention/state/
 *.jsonl
 
 # Databases (ground truth, vault)
@@ -108,7 +108,7 @@ config.local.*
 
 # AI coordination / handoff documents (local working documents, not repo content)
 HARNESS-SPEC.md
-STRATA-HANDOFF.md
+SPLINTER-HANDOFF.md
 HANDOFF-*.md
 
 # OS / editor
@@ -131,7 +131,7 @@ BEE-BETA.md
 HIVE-OPS.md
 HIVE-RESEARCH.md
 PROPOSALS.md
-STRATA-PLAN.md
+SPLINTER-PLAN.md
 .claims/
 .bee-status/
 hive-status.log

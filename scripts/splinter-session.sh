@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # splinter-session: run the splinter sidecar with exactly Studio's lifetime.
 #
-# Launched inside a transient systemd scope (see ~/Desktop/"Unsloth Strata").
+# Launched inside a transient systemd scope (see ~/Desktop/"Unsloth Splinter").
 # Every process here lives in the scope's cgroup; when this script dies by any
 # means (exit, crash, or a signal), the whole cgroup is reaped - orphans are
 # impossible. No polling: event-driven via wait -n.
@@ -11,16 +11,16 @@ export OMP_NUM_THREADS=1            # encoder is 12M params; 1 thread ~5ms
 export OPENBLAS_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false
 
-STUDIO_BIN="${STUDIO_BIN:-/home/penis/.local/bin/unsloth-web}"
-PORT="${STRATA_PORT:-8765}"
+STUDIO_BIN="${STUDIO_BIN:-$HOME/.local/bin/unsloth-web}"
+PORT="${SPLINTER_PORT:-8765}"
 
 # Standalone (2026-09-15): splinter ships its own server (splinter/server.py),
 # extracted from the hivebench sidecar - no sibling checkout needed. The venv
 # + conversation store live here (splinter-memory).
-STRATA_HOME="$(pwd -P)"
-export STRATA_HOME
-PY="$STRATA_HOME/venv/bin/python"
-STATE_DIR="${STRATA_STATE_DIR:-$STRATA_HOME/harness_state}"
+SPLINTER_HOME="$(pwd -P)"
+export SPLINTER_HOME
+PY="$SPLINTER_HOME/venv/bin/python"
+STATE_DIR="${SPLINTER_STATE_DIR:-$SPLINTER_HOME/harness_state}"
 
 port_in_use() { timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/$PORT" 2>/dev/null; }
 

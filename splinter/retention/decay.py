@@ -31,7 +31,7 @@ class DecayMatrix:
         stale_factor: Optional[float] = None,
     ) -> dict[str, float]:
         """Apply decay. stale_threshold / stale_factor override the
-        class constants when provided (StrataConfig threading)."""
+        class constants when provided (SplinterConfig threading)."""
         drift_penalties = drift_penalties or {}
         exempt_ids = exempt_ids or set()
         threshold = stale_threshold if stale_threshold is not None else self.STALE_THRESHOLD

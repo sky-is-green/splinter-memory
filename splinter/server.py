@@ -1,4 +1,4 @@
-"""Standalone Strata server: splinter's own serving boundary.
+"""Standalone Splinter server: splinter's own serving boundary.
 
 This module is the part of the original sidecar that makes splinter work
 INDEPENDENTLY of any host application. Extracted from the hivebench sidecar
@@ -9,7 +9,7 @@ INDEPENDENTLY of any host application. Extracted from the hivebench sidecar
   * tuning surface            /v1/splinter/defaults
   * curated OpenAI passthrough /v1/openai/{models,chat/completions}
                               plus the Responses API shim /v1/openai/responses
-                              (X-Strata-Conversation keyed; dsh / opencode /
+                              (X-Splinter-Conversation keyed; dsh / opencode /
                               any OpenAI client plugs in here)
   * provider config           /v1/provider/config (providers.local.json)
 
@@ -58,8 +58,8 @@ from backend.providers import (
     providers_path,
     save_registry,
 )
-from cortex.config import StrataConfig
-from cortex.splinter import Strata
+from cortex.config import SplinterConfig
+from cortex.splinter import Splinter
 from splinter.mcp.server import McpContext, handle_message
 from splinter.mcp.tools import remember as mcp_remember
 from splinter.mcp.tools import search as mcp_search
@@ -197,7 +197,7 @@ class ConversationRegistry:
             self.state_dir.mkdir(parents=True, exist_ok=True)
         self.registry = ProviderRegistry()
         self._ultra = None
-        self.hives: dict[str, Strata] = {}
+        self.hives: dict[str, Splinter] = {}
         self.locks: dict[str, threading.Lock] = {}
         self.global_lock = threading.Lock()
         # Conversation lifecycle: LRU-bounded so a long-running server cannot
@@ -221,7 +221,7 @@ class ConversationRegistry:
         digest = hashlib.md5(conversation_id.encode("utf-8")).hexdigest()[:16]
         return self.state_dir / f"conv-{digest}.json"
 
-    def save_conversation(self, conversation_id: str, splinter: Strata) -> None:
+    def save_conversation(self, conversation_id: str, splinter: Splinter) -> None:
         """Persist one conversation atomically (tmp file + os.replace)."""
         path = self._conv_path(conversation_id)
         if path is None:
@@ -242,10 +242,10 @@ class ConversationRegistry:
         if path is not None and path.exists():
             path.unlink()
 
-    def strata_for(
+    def splinter_for(
         self, conversation_id: str, config_overrides: dict | None,
         with_backend: bool = True, engine: Optional[str] = None,
-    ) -> Strata:
+    ) -> Splinter:
         """Get or lazily create the conversation's splinter.
 
         A conversation not in memory but present in ``state_dir`` restores
@@ -265,12 +265,12 @@ class ConversationRegistry:
                 self._last_access[conversation_id] = time.monotonic()
                 return splinter
 
-            def build(cfg: StrataConfig, backend: object | None) -> Strata:
+            def build(cfg: SplinterConfig, backend: object | None) -> Splinter:
                 logger = self._loggers.get(conversation_id)
                 if logger is None:
                     logger = EventLogger(log_dir=self.log_dir)
                     self._loggers[conversation_id] = logger
-                h = Strata(
+                h = Splinter(
                     config=cfg,
                     ultra=self.ultra(),
                     backend=backend,
@@ -284,7 +284,7 @@ class ConversationRegistry:
             if path is not None and path.exists():
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
-                    splinter = build(StrataConfig.from_dict(data["config"]),
+                    splinter = build(SplinterConfig.from_dict(data["config"]),
                                    self.backend_factory(None)
                                    if data.get("with_backend") else None)
                     splinter.store = ContextStore.from_dict(
@@ -298,10 +298,10 @@ class ConversationRegistry:
                     print(f"splinter-server: restoring {conversation_id} failed "
                           f"({exc}); starting fresh", file=sys.stderr)
 
-            config = StrataConfig(confidence_mode="off")
+            config = SplinterConfig(confidence_mode="off")
             if config_overrides:
                 merged = {**config.to_dict(), **config_overrides}
-                config = StrataConfig.from_dict(merged)
+                config = SplinterConfig.from_dict(merged)
             splinter = build(config, self.backend_factory(None) if with_backend else None)
             self._last_access[conversation_id] = time.monotonic()
             self._evict_locked(exclude=conversation_id)
@@ -366,7 +366,7 @@ class TurnRequest(BaseModel):
     model: Optional[str] = None  # override the provider's model for this turn's splinter
     provider: Optional[str] = None  # per-conversation inference target (multi-model)
     engine: Optional[str] = None  # accepted for wire compat; ignored (host concern)
-    config: Optional[dict] = None  # StrataConfig overrides (applied on creation)
+    config: Optional[dict] = None  # SplinterConfig overrides (applied on creation)
 
 
 class ResetRequest(BaseModel):
@@ -436,7 +436,7 @@ def create_app(
     if providers_file is None:
         providers_file = REPO_ROOT / "providers.local.json"
     if state_dir is None:
-        state_dir = Path(os.environ.get("STRATA_STATE_DIR", "harness_state"))
+        state_dir = Path(os.environ.get("SPLINTER_STATE_DIR", "harness_state"))
 
     def _default_ultra():
         embedding_backend = os.environ.get("HARNESS_EMBEDDING_BACKEND", "local")
@@ -466,7 +466,7 @@ def create_app(
             kw["model"] = model
         return OpenAICompatBackend(**kw)
 
-    app = FastAPI(title="Strata Server", version="0.1.0")
+    app = FastAPI(title="Splinter Server", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -522,11 +522,11 @@ def create_app(
     # ------------------------------------------------------------------
 
     @app.post("/v1/splinter/turn")
-    def strata_turn(req: TurnRequest):
+    def splinter_turn(req: TurnRequest):
         query = (req.query or "").strip()
         if not query:
             raise HTTPException(422, "query must not be empty")
-        splinter = st.strata_for(req.conversation_id, req.config, engine=req.engine)
+        splinter = st.splinter_for(req.conversation_id, req.config, engine=req.engine)
         # Per-conversation inference target: provider and/or model override
         # swaps the conversation's backend (multi-model: pick any loaded one).
         current_provider = st._conv_provider.get(req.conversation_id)
@@ -561,7 +561,7 @@ def create_app(
         }
 
     @app.get("/v1/splinter/inspect/{conversation_id}")
-    def strata_inspect(conversation_id: str):
+    def splinter_inspect(conversation_id: str):
         """Last turn's full curation detail for the prompt inspector."""
         with st.global_lock:
             splinter = st.hives.get(conversation_id)
@@ -572,7 +572,7 @@ def create_app(
         return splinter.inspect_turn(splinter._last_turn_result)
 
     @app.post("/v1/splinter/reset")
-    def strata_reset(req: ResetRequest):
+    def splinter_reset(req: ResetRequest):
         st.drop(req.conversation_id)
         return {"ok": True}
 
@@ -582,11 +582,11 @@ def create_app(
     # ------------------------------------------------------------------
 
     @app.post("/v1/splinter/curate")
-    def strata_curate(req: CurateRequest):
+    def splinter_curate(req: CurateRequest):
         query = (req.query or "").strip()
         if not query:
             raise HTTPException(422, "query must not be empty")
-        splinter = st.strata_for(req.conversation_id, req.config, with_backend=False,
+        splinter = st.splinter_for(req.conversation_id, req.config, with_backend=False,
                                engine=req.engine)
         with st.lock_for(req.conversation_id):
             result = splinter.process_turn(query, conversation_id=req.conversation_id)
@@ -606,15 +606,15 @@ def create_app(
         }
 
     @app.post("/v1/splinter/observe")
-    def strata_observe(req: ObserveRequest):
+    def splinter_observe(req: ObserveRequest):
         # lazily create: external integrators may observe before ever calling
         # curate (e.g. feeding back a reply for a session the studio has
         # never seen); the conversation materializes here.
-        splinter = st.strata_for(req.conversation_id, None, with_backend=False)
+        splinter = st.splinter_for(req.conversation_id, None, with_backend=False)
         reply = (req.reply or "").strip()
         stored = False
         if reply and not (
-            splinter.config.filter_hedge_replies and Strata._is_hedge_reply(reply)
+            splinter.config.filter_hedge_replies and Splinter._is_hedge_reply(reply)
         ):
             st.begin(req.conversation_id)
             with st.lock_for(req.conversation_id):
@@ -625,7 +625,7 @@ def create_app(
         return {"ok": True, "stored": stored, "turn": splinter.turn}
 
     @app.post("/v1/splinter/stream")
-    async def strata_stream(req: StreamTurnRequest):
+    async def splinter_stream(req: StreamTurnRequest):
         query = (req.query or "").strip()
         if not query:
             raise HTTPException(422, "query must not be empty")
@@ -637,7 +637,7 @@ def create_app(
         base_url = provider.base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {provider.api_key or 'lm-studio'}",
                    **provider.extra_headers}
-        splinter = st.strata_for(req.conversation_id, req.config, with_backend=False)
+        splinter = st.splinter_for(req.conversation_id, req.config, with_backend=False)
         st.begin(req.conversation_id)
         with st.lock_for(req.conversation_id):
             result = splinter.process_turn(query, conversation_id=req.conversation_id)
@@ -700,7 +700,7 @@ def create_app(
             stored = False
             if reply.strip() and not (
                 splinter.config.filter_hedge_replies
-                and Strata._is_hedge_reply(reply)
+                and Splinter._is_hedge_reply(reply)
             ):
                 stored = splinter.store.add_chunk(splinter.turn, reply) is not None
                 if stored:
@@ -718,15 +718,15 @@ def create_app(
         return StreamingResponse(sse(), media_type="text/event-stream")
 
     @app.get("/v1/splinter/defaults")
-    def strata_defaults():
-        """StrataConfig defaults - the source for the UI tuning form. Overrides
+    def splinter_defaults():
+        """SplinterConfig defaults - the source for the UI tuning form. Overrides
         ride each turn request's `config` and apply when a conversation is
         created (reset to re-tune)."""
-        return StrataConfig().to_dict()
+        return SplinterConfig().to_dict()
 
     @app.get("/v1/splinter/state")
-    def strata_state(conversation_id: Optional[str] = Query(default=None)):
-        def snapshot(h: Strata) -> dict:
+    def splinter_state(conversation_id: Optional[str] = Query(default=None)):
+        def snapshot(h: Splinter) -> dict:
             return {
                 "turn": h.turn,
                 "store_chunks": len(h.store.all_chunks()),
@@ -739,7 +739,7 @@ def create_app(
             if splinter is None and st.state_dir is not None \
                     and st._conv_path(conversation_id).exists():
                 # lazy-restore a persisted conversation so state survives restarts
-                splinter = st.strata_for(conversation_id, None)
+                splinter = st.splinter_for(conversation_id, None)
             if splinter is None:
                 raise HTTPException(404, f"no such conversation: {conversation_id}")
             return {**snapshot(splinter), "conversation_id": conversation_id}
@@ -751,7 +751,7 @@ def create_app(
     # Curated OpenAI-compatible passthrough (Mode A integration: dsh,
     # opencode, any OpenAI client). Standard /chat/completions wire shape,
     # curated system context, the reply observed back into the store.
-    # Conversation key: X-Strata-Conversation header > payload "user"
+    # Conversation key: X-Splinter-Conversation header > payload "user"
     # > "default".
     # ------------------------------------------------------------------
 
@@ -780,7 +780,7 @@ def create_app(
         config.
         """
         model_name = payload.get("model") or ""
-        cid = request.headers.get("X-Strata-Conversation")
+        cid = request.headers.get("X-Splinter-Conversation")
         if not cid and ":" in model_name:
             prefix, _, remainder = model_name.partition(":")
             if prefix.strip() and remainder.strip():
@@ -817,7 +817,7 @@ def create_app(
         base_url = provider.base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {provider.api_key or 'lm-studio'}",
                    **provider.extra_headers}
-        splinter = st.strata_for(cid, payload.get("config"), with_backend=False)
+        splinter = st.splinter_for(cid, payload.get("config"), with_backend=False)
         # Budget guard / forward window: Unsloth Studio proxies its ENTIRE
         # thread history, which can exceed the upstream context (observed:
         # 1.04M tokens vs 74k available -> llama.cpp 400). Curation carries
@@ -878,7 +878,7 @@ def create_app(
             stored = False
             if reply.strip() and not (
                 splinter.config.filter_hedge_replies
-                and Strata._is_hedge_reply(reply)
+                and Splinter._is_hedge_reply(reply)
             ):
                 stored = splinter.store.add_chunk(splinter.turn, reply) is not None
                 if stored:
@@ -952,7 +952,7 @@ def create_app(
                 else:
                     yield "data: " + json.dumps({
                         "error": {"message": str(item),
-                                  "type": "strata_upstream_error"},
+                                  "type": "splinter_upstream_error"},
                     }) + "\n\n"
 
         return StreamingResponse(sse(), media_type="text/event-stream")
@@ -1001,7 +1001,7 @@ def create_app(
                            "data: " + json.dumps({
                                "type": "response.failed",
                                "error": {"message": str(item),
-                                         "type": "strata_upstream_error"},
+                                         "type": "splinter_upstream_error"},
                            }) + "\n\n")
             if failed:
                 return
@@ -1051,21 +1051,21 @@ def create_app(
 
     @app.post("/v1/mcp")
     async def mcp_endpoint(request: Request):
-        """Stateless JSON-RPC MCP endpoint (S2): strata_remember / strata_search."""
+        """Stateless JSON-RPC MCP endpoint (S2): splinter_remember / splinter_search."""
         try:
             body = await request.json()
         except Exception:
             raise HTTPException(400, "invalid JSON body")
 
         def do_remember(conversation_id: str, text: str) -> dict:
-            splinter = st.strata_for(conversation_id, None, with_backend=False)
+            splinter = st.splinter_for(conversation_id, None, with_backend=False)
             with st.lock_for(conversation_id):
                 payload = mcp_remember(splinter, text)
                 st.save_conversation(conversation_id, splinter)
             return {"conversation_id": conversation_id, **payload}
 
         def do_search(conversation_id: str, query: str, top_k: int) -> dict:
-            splinter = st.strata_for(conversation_id, None, with_backend=False)
+            splinter = st.splinter_for(conversation_id, None, with_backend=False)
             with st.lock_for(conversation_id):
                 payload = mcp_search(splinter, query, top_k)
                 st.save_conversation(conversation_id, splinter)
@@ -1086,14 +1086,14 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="splinter-serve",
-        description="Standalone Strata server (conversation loop + curated "
+        description="Standalone Splinter server (conversation loop + curated "
                     "OpenAI passthrough), independent of any host app.",
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int,
-                        default=int(os.environ.get("STRATA_PORT", "8765")))
+                        default=int(os.environ.get("SPLINTER_PORT", "8765")))
     parser.add_argument("--state-dir", default=None,
-                        help="conversation persistence dir (default: $STRATA_STATE_DIR "
+                        help="conversation persistence dir (default: $SPLINTER_STATE_DIR "
                              "or ./harness_state)")
     parser.add_argument("--providers", default=None,
                         help="providers JSON file (default: <repo>/providers.local.json)")

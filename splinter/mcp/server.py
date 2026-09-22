@@ -6,7 +6,7 @@ Only the messages a tool-using client needs are implemented:
 
 - ``initialize`` / ``notifications/initialized`` (handshake)
 - ``ping``
-- ``tools/list`` (``strata_search`` / ``strata_remember``)
+- ``tools/list`` (``splinter_search`` / ``splinter_remember``)
 - ``tools/call`` (validated; ``conversation_id`` required, never implicit)
 
 The transport answers ``POST`` with ``application/json`` (the spec allows a
@@ -37,7 +37,7 @@ class McpContext:
     """Per-request sidecar bindings injected by ``harness/app.py``.
 
     ``remember`` / ``search`` close over the sidecar's conversation registry
-    (``strata_for`` + locks + persistence); this module never touches it.
+    (``splinter_for`` + locks + persistence); this module never touches it.
     """
 
     def __init__(
@@ -75,7 +75,7 @@ def _conversation_id(arguments: Any) -> str:
     if not isinstance(cid, str) or not cid.strip():
         raise ValueError(
             "conversation_id is required (non-empty string) on every "
-            "strata_search / strata_remember call; it is never implicit"
+            "splinter_search / splinter_remember call; it is never implicit"
         )
     return cid.strip()
 
@@ -85,13 +85,13 @@ def _call_tool(ctx: McpContext, params: Any) -> dict:
         raise ValueError("tools/call params must be an object")
     name = params.get("name")
     arguments = params.get("arguments") or {}
-    if name == "strata_remember":
+    if name == "splinter_remember":
         cid = _conversation_id(arguments)
         text = arguments.get("text")
         if not isinstance(text, str) or not text.strip():
             raise ValueError("text must be a non-empty string")
         payload = ctx.remember(cid, text)
-    elif name == "strata_search":
+    elif name == "splinter_search":
         cid = _conversation_id(arguments)
         query = arguments.get("query")
         if not isinstance(query, str) or not query.strip():

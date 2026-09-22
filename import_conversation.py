@@ -11,10 +11,10 @@ import hashlib, json, os, sqlite3, sys
 from pathlib import Path
 
 sys.path.insert(0, ".")
-from splinter.cortex.config import StrataConfig
+from splinter.cortex.config import SplinterConfig
 from splinter.retention.store import ContextStore
 
-DB = "/home/penis/.unsloth/studio/studio.db"
+DB = os.environ.get("SPLINTER_STUDIO_DB", os.path.expanduser("~/.unsloth/studio/studio.db"))
 STATE_DIR = Path("harness_state")
 
 def extract_text(content_json: str) -> str:
@@ -53,7 +53,7 @@ def main():
         store.add_chunk(i, content, chunk_id=cid)
         n += 1
 
-    cfg = StrataConfig(confidence_mode="off")
+    cfg = SplinterConfig(confidence_mode="off")
     digest = hashlib.md5(conv_name.encode()).hexdigest()[:16]
     path = STATE_DIR / f"conv-{digest}.json"
     payload = {

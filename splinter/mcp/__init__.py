@@ -1,10 +1,10 @@
-"""Strata MCP server package (S2).
+"""Splinter MCP server package (S2).
 
 Exposes the conversation store through the Model Context Protocol over the
 sidecar's Streamable HTTP endpoint (``POST /v1/mcp`` in ``harness/app.py``):
 
-- ``strata_search`` — recall curated context for a conversation.
-- ``strata_remember`` — store a fact for a conversation.
+- ``splinter_search`` — recall curated context for a conversation.
+- ``splinter_remember`` — store a fact for a conversation.
 
 ``conversation_id`` is a **required tool argument** on both tools — the
 server never implies it from headers, payload fields, or defaults.

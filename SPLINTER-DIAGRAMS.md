@@ -1,52 +1,52 @@
-﻿# Strata Memory: Why STRATA Improves Over Not Using STRATA
+﻿# Splinter Memory: Why SPLINTER Improves Over Not Using SPLINTER
 
-Companion to `STRATA-WHITE-PAPER.md` and `STRATA-HANDOFF.md` (the single master doc: project state, roadmap, usage).
+Companion to `SPLINTER-WHITE-PAPER.md` and `SPLINTER-HANDOFF.md` (the single master doc: project state, roadmap, usage).
 
 > **Note (2026-08-24):** the diagrams in §1-§5 are now also embedded in the
 > white paper (§1.1, §1.2, §4) alongside the measured charts; this file
 > remains the standalone visual summary.
 This document answers one question with diagrams:
 
-> **Why does the STRATA system improve results over not using STRATA, and why?**
+> **Why does the SPLINTER system improve results over not using SPLINTER, and why?**
 
 > Rendering: the diagrams below are Mermaid. Open this file in GitHub, VS Code
 > (with "Markdown Preview Mermaid Support"), or Obsidian to render them. If
 > your viewer does not render Mermaid (especially the `xychart-beta` charts in
 > §6), use the rendered images in `figures/`, they are embedded in
-> `STRATA-WHITE-PAPER.md` and shown again under each chart below.
+> `SPLINTER-WHITE-PAPER.md` and shown again under each chart below.
 
 ---
 
 ## 1. The one-sentence argument
 
-The one-sentence argument: **naive systems keep the *most recent* text; STRATA keeps the
+The one-sentence argument: **naive systems keep the *most recent* text; SPLINTER keeps the
 *most relevant* text.** Everything else follows from that distinction.
 
 ```mermaid
 flowchart LR
     NAIVE["Naive: keep the MOST RECENT<br/>blind FIFO eviction<br/>context loss + lost-in-the-middle + quadratic cost"]
-    STRATA["STRATA: keep the MOST RELEVANT<br/>relevance-ranked, bounded selection<br/>foundational context survives + flat cost"]
+    SPLINTER["SPLINTER: keep the MOST RELEVANT<br/>relevance-ranked, bounded selection<br/>foundational context survives + flat cost"]
     NAIVE -->|"degrades as conversations grow"| GAP["The gap widens with conversation length"]
-    STRATA -->|"stays flat at any length"| GAP
+    SPLINTER -->|"stays flat at any length"| GAP
 ```
 
 ---
 
-## 2. Why naive fails, and how STRATA removes each failure mode
+## 2. Why naive fails, and how SPLINTER removes each failure mode
 
-The white paper identifies three compounding failure modes in long conversations. STRATA exists
+The white paper identifies three compounding failure modes in long conversations. SPLINTER exists
 because each one is **engineerable away** rather than an irreducible limit.
 
 ```mermaid
 flowchart TB
-    subgraph FAIL["Without STRATA, the three naive failure modes"]
+    subgraph FAIL["Without SPLINTER, the three naive failure modes"]
         direction TB
         F1["Context loss (recall)<br/>FIFO discards foundational rules and<br/>early decisions blindly"]
         F2["Lost-in-the-middle (attention)<br/>model under-uses the middle of<br/>a large raw window"]
         F3["Quadratic cost (compute)<br/>prompt grows every turn, slower<br/>generation, OOM risk on consumer GPUs"]
     end
 
-    subgraph FIX["How STRATA removes each one"]
+    subgraph FIX["How SPLINTER removes each one"]
         direction TB
         M1["Sieve: relevance-score every chunk<br/>vs. the current query, foundational<br/>context keeps scoring high"]
         M2["Focal: assemble a bounded, relevance-<br/>ranked window, the model's attention is<br/>spent only on tokens predicted to matter"]
@@ -67,9 +67,9 @@ flowchart TB
     START["Same long conversation, 100 to 500+ turns"] --> SPLIT{"How is context<br/>delivered to the LLM?"}
 
     SPLIT -->|"no curation layer"| N1
-    SPLIT -->|"STRATA curation layer"| H1
+    SPLIT -->|"SPLINTER curation layer"| H1
 
-    subgraph NA["Without STRATA, naive FIFO rolling window"]
+    subgraph NA["Without SPLINTER, naive FIFO rolling window"]
         direction TB
         N1["Window fills at 4-8k tokens"]
         N2["Blind FIFO eviction, oldest text dropped"]
@@ -79,7 +79,7 @@ flowchart TB
         N1 --> N2 --> N3 --> N4 --> N5
     end
 
-    subgraph HI["With STRATA, external context-curation layer"]
+    subgraph HI["With SPLINTER, external context-curation layer"]
         direction TB
         H1["Sieve: drone fleet scores every chunk vs. the current query"]
         H2["Membrane: semantic dedup (keep densest) + topic-drift reset"]
@@ -90,7 +90,7 @@ flowchart TB
     end
 
     N5 --> RES1["Baseline outcome: near-chance retrieval past the window,<br/>PES ~30 (measured: rolling 12.2, FIFO 11.6),<br/>quality decays with length"]
-    H5 --> RES2["Strata outcome: flat decode tps (P1),<br/>recall 90.3% on stated facts (P2, deterministic),<br/>post-run PES 80.0 GREEN vs ~12 baselines"]
+    H5 --> RES2["Splinter outcome: flat decode tps (P1),<br/>recall 90.3% on stated facts (P2, deterministic),<br/>post-run PES 80.0 GREEN vs ~12 baselines"]
     RES1 --> TAKE
     RES2 --> TAKE
     TAKE["Takeaway: same or cheaper compute per turn,<br/>strictly better long-run quality, the gap widens as conversations grow"]
@@ -115,21 +115,21 @@ flowchart TB
     O1 --> WIN
     O2 --> WIN
     O3 --> WIN
-    WIN["STRATA dominates naive precisely in the regime<br/>where naive degrades, long conversations"]
+    WIN["SPLINTER dominates naive precisely in the regime<br/>where naive degrades, long conversations"]
 ```
 
 ### 4.2 Why externalizing comprehension is cheaper and better
 
-STRATA is not "more context", it is **better allocation of the same compute**.
+SPLINTER is not "more context", it is **better allocation of the same compute**.
 
 ```mermaid
 flowchart LR
     subgraph WHERE["Where the work happens"]
         direction TB
-        W1["Without STRATA: the LLM must re-discover, on every<br/>turn, which earlier tokens matter, expensive causal<br/>attention over raw, unbounded history"]
-        W2["With STRATA: small bidirectional encoders (orders<br/>of magnitude cheaper) do the comparison and<br/>similarity work up front"]
+        W1["Without SPLINTER: the LLM must re-discover, on every<br/>turn, which earlier tokens matter, expensive causal<br/>attention over raw, unbounded history"]
+        W2["With SPLINTER: small bidirectional encoders (orders<br/>of magnitude cheaper) do the comparison and<br/>similarity work up front"]
     end
-    W1 -->|"same token budget"| C["Relevance-ranked selection concentrates the LLM's<br/>expensive attention on the tokens that actually matter<br/>(P3: equal budget, strata sufficiency higher on ≥80% of turns)"]
+    W1 -->|"same token budget"| C["Relevance-ranked selection concentrates the LLM's<br/>expensive attention on the tokens that actually matter<br/>(P3: equal budget, splinter sufficiency higher on ≥80% of turns)"]
     W2 --> C
 ```
 
@@ -139,10 +139,10 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    L1["1-10 turns: naive and STRATA both fit in the window,<br/>small or no difference (STRATA adds a little overhead)"]
-    L10["100+ turns: naive has evicted foundational context<br/>and slows; STRATA still feeds the same bounded,<br/>high-relevance window, the difference becomes large"]
+    L1["1-10 turns: naive and SPLINTER both fit in the window,<br/>small or no difference (SPLINTER adds a little overhead)"]
+    L10["100+ turns: naive has evicted foundational context<br/>and slows; SPLINTER still feeds the same bounded,<br/>high-relevance window, the difference becomes large"]
     L1 --> L10
-    L10 --> E["The longer the conversation, the more STRATA's<br/>relevance-ranked curation matters, which is exactly<br/>where naive systems fall apart"]
+    L10 --> E["The longer the conversation, the more SPLINTER's<br/>relevance-ranked curation matters, which is exactly<br/>where naive systems fall apart"]
 ```
 
 ---
@@ -207,15 +207,15 @@ xychart-beta
 
 ![Rendered:](figures/p9.png)
 
-### 6.4 PES: the strata vs the baselines (post-run, 211131)
+### 6.4 PES: the splinter vs the baselines (post-run, 211131)
 
-The bounded-context headline: post-run PES 80.0 GREEN vs the no-strata
+The bounded-context headline: post-run PES 80.0 GREEN vs the no-splinter
 baselines on the same conversations.
 
 ```mermaid
 xychart-beta
-    title "Post-run PES: strata vs baselines (run 20260822_211131)"
-    x-axis ["strata", "rolling", "fifo"]
+    title "Post-run PES: splinter vs baselines (run 20260822_211131)"
+    x-axis ["splinter", "rolling", "fifo"]
     y-axis "PES (0-100)" 0 --> 100
     bar "PES" [80.0, 12.2, 11.6]
 ```
@@ -240,10 +240,10 @@ xychart-beta
 
 ---
 
-> **Bottom line:** STRATA wins because it externalizes the two things a generative model is
+> **Bottom line:** SPLINTER wins because it externalizes the two things a generative model is
 > bad at (*remembering* and *selecting*) to components built for them, and spends the
 > model's expensive attention budget only on tokens predicted to matter. Naive systems
-> degrade on all three axes (recall, attention, compute) as conversations grow; STRATA's
+> degrade on all three axes (recall, attention, compute) as conversations grow; SPLINTER's
 > bounded, relevance-ranked context keeps all three flat, with the honest caveat that
 > selection *efficiency* (precision) is an open, documented ceiling (Threat 6) rather than
 > a solved one.

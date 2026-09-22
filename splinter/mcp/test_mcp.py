@@ -1,6 +1,6 @@
 """Unit tests for the splinter MCP package (S2): tool handlers + dispatcher.
 
-All offline: real ``Strata`` with the fake drone / mock transport (the same
+All offline: real ``Splinter`` with the fake drone / mock transport (the same
 offline shape as the sidecar tests), so no LM Studio or encoder download.
 """
 
@@ -9,16 +9,16 @@ import json
 import pytest
 
 from backend.openai_compat import OpenAICompatBackend
-from cortex.config import StrataConfig
+from cortex.config import SplinterConfig
 from cortex.e2e import FakeUltraSmall, MockTransport
-from cortex.splinter import Strata
+from cortex.splinter import Splinter
 from splinter.mcp import server as mcp_server
 from splinter.mcp import tools as mcp_tools
 
 
-def _strata() -> Strata:
-    return Strata(
-        config=StrataConfig(confidence_mode="off"),
+def _splinter() -> Splinter:
+    return Splinter(
+        config=SplinterConfig(confidence_mode="off"),
         ultra=FakeUltraSmall(),
         backend=OpenAICompatBackend(
             base_url="http://mock", model="mock-model",
@@ -28,14 +28,14 @@ def _strata() -> Strata:
 
 
 def _ctx_for(store: dict):
-    """McpContext bound to per-conversation Strata instances."""
+    """McpContext bound to per-conversation Splinter instances."""
 
     def do_remember(conversation_id: str, text: str) -> dict:
-        splinter = store.setdefault(conversation_id, _strata())
+        splinter = store.setdefault(conversation_id, _splinter())
         return mcp_tools.remember(splinter, text)
 
     def do_search(conversation_id: str, query: str, top_k: int) -> dict:
-        splinter = store.setdefault(conversation_id, _strata())
+        splinter = store.setdefault(conversation_id, _splinter())
         return mcp_tools.search(splinter, query, top_k)
 
     return mcp_server.McpContext(remember=do_remember, search=do_search)
@@ -45,7 +45,7 @@ def _ctx_for(store: dict):
 # tool schemas: conversation_id is required, never implicit
 # ---------------------------------------------------------------------------
 def test_tool_names():
-    assert mcp_tools.TOOL_NAMES == ("strata_search", "strata_remember")
+    assert mcp_tools.TOOL_NAMES == ("splinter_search", "splinter_remember")
 
 
 def test_both_tools_require_conversation_id():
@@ -82,20 +82,20 @@ def test_search_isolated_across_conversations():
 
 def test_remember_rejects_empty_text():
     with pytest.raises(ValueError):
-        mcp_tools.remember(_strata(), "   ")
+        mcp_tools.remember(_splinter(), "   ")
 
 
 def test_search_rejects_empty_query_and_bad_top_k():
     with pytest.raises(ValueError):
-        mcp_tools.search(_strata(), "  ")
+        mcp_tools.search(_splinter(), "  ")
     with pytest.raises(ValueError):
-        mcp_tools.search(_strata(), "hello", 0)
+        mcp_tools.search(_splinter(), "hello", 0)
     with pytest.raises(ValueError):
-        mcp_tools.search(_strata(), "hello", 21)
+        mcp_tools.search(_splinter(), "hello", 21)
 
 
 def test_search_does_not_store():
-    splinter = _strata()
+    splinter = _splinter()
     before = len(splinter.store.all_chunks())
     mcp_tools.search(splinter, "Which tokens do I use for auth expiry?")
     assert len(splinter.store.all_chunks()) == before
@@ -150,14 +150,14 @@ def test_tools_list_exposes_both_tools():
         ctx,
     )
     names = {t["name"] for t in resp["result"]["tools"]}
-    assert names == {"strata_search", "strata_remember"}
+    assert names == {"splinter_search", "splinter_remember"}
 
 
 def test_tools_call_roundtrip_through_dispatcher():
     store: dict = {}
     ctx = _ctx_for(store)
     resp = mcp_server.handle_message(
-        _call("strata_remember", {
+        _call("splinter_remember", {
             "conversation_id": "conv-mcp",
             "text": "Deploy tokens rotate every 90 days per policy.",
         }), ctx)
@@ -165,7 +165,7 @@ def test_tools_call_roundtrip_through_dispatcher():
     assert json.loads(resp["result"]["content"][0]["text"])["stored"] is True
 
     resp = mcp_server.handle_message(
-        _call("strata_search", {
+        _call("splinter_search", {
             "conversation_id": "conv-mcp",
             "query": "What is the deploy token rotation period?",
         }, msg_id=2), ctx)
@@ -179,7 +179,7 @@ def test_tools_call_requires_conversation_id():
     for arguments in ({}, {"conversation_id": ""}, {"conversation_id": "  "},
                       {"conversation_id": None, "query": "q"}):
         resp = mcp_server.handle_message(
-            _call("strata_search", {**arguments, "query": "q"}), ctx)
+            _call("splinter_search", {**arguments, "query": "q"}), ctx)
         assert resp["error"]["code"] == -32602, arguments
         assert "conversation_id" in resp["error"]["message"]
 
@@ -198,7 +198,7 @@ def test_tools_call_invalid_arguments_shape():
     ctx = _ctx_for({})
     resp = mcp_server.handle_message({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "strata_search", "arguments": {
+        "params": {"name": "splinter_search", "arguments": {
             "conversation_id": "c", "query": "   "}},
     }, ctx)
     assert resp["error"]["code"] == -32602

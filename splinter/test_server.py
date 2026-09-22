@@ -129,10 +129,10 @@ def test_ingest_repairs_mojibake_at_http_boundary(client):
 
 
 def test_mcp_remember_search_roundtrip(client):
-    """S2 contract: strata_remember / strata_search over JSON-RPC."""
+    """S2 contract: splinter_remember / splinter_search over JSON-RPC."""
     r = client.post("/v1/mcp", json={
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "strata_remember",
+        "params": {"name": "splinter_remember",
                    "arguments": {"conversation_id": "m1",
                                   "text": "my GPU is an RX 7900 XTX"}}})
     assert r.status_code == 200
@@ -140,7 +140,7 @@ def test_mcp_remember_search_roundtrip(client):
 
     r = client.post("/v1/mcp", json={
         "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-        "params": {"name": "strata_search",
+        "params": {"name": "splinter_search",
                    "arguments": {"conversation_id": "m1",
                                   "query": "what GPU do I have?",
                                   "top_k": 3}}})

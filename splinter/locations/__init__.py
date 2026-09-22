@@ -1,13 +1,13 @@
 """Cross-repo location resolution (post-split).
 
-After the HiveBench split, Strata Memory and HiveBench live in sibling
+After the HiveBench split, Splinter Memory and HiveBench live in sibling
 checkouts::
 
     <work>/splinter-memory/    this repo (system + harness)
     <work>/hivebench/        evaluation suite: tests, testing, experiments,
                              fixtures, labels, experiment artifacts
 
-HiveBench owns all fixtures, label sets, and experiment data. A few Strata CLI
+HiveBench owns all fixtures, label sets, and experiment data. A few Splinter CLI
 entry points default to fixture paths that now live in the sibling checkout;
 this package is the single place that resolution lives.
 
