@@ -82,7 +82,7 @@ assert `status == "PASS"`, so a green run is the reproduction.
 
 ## Headline comparison (level L)
 
-The strata-vs-baseline PES comparison and the paired A/B answer-quality run:
+The splinter-vs-baseline PES comparison and the paired A/B answer-quality run:
 
 ```bash
 python -m experiments.run_compare --live --model <model>
