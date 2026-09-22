@@ -2,6 +2,16 @@
 
 [![CI](https://github.com/sky-is-green/splinter-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sky-is-green/splinter-memory/actions/workflows/ci.yml)
 
+[![License](https://img.shields.io/github/license/sky-is-green/splinter-memory?style=flat)](https://github.com/sky-is-green/splinter-memory/blob/SplinterMemory-test/LICENSE)
+[![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)](https://github.com/sky-is-green/splinter-memory)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white)](https://github.com/sky-is-green/splinter-memory)
+[![NumPy](https://img.shields.io/badge/NumPy-013243?style=flat&logo=numpy&logoColor=white)](https://github.com/sky-is-green/splinter-memory)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat&logo=scikitlearn&logoColor=white)](https://github.com/sky-is-green/splinter-memory)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)](https://github.com/sky-is-green/splinter-memory)
+[![Top language](https://img.shields.io/github/languages/top/sky-is-green/splinter-memory?style=flat&logo=python&logoColor=white)](https://github.com/sky-is-green/splinter-memory)
+[![Last commit](https://img.shields.io/github/last-commit/sky-is-green/splinter-memory/SplinterMemory-test?style=flat&label=Last%20commit&logo=git)](https://github.com/sky-is-green/splinter-memory/commits/SplinterMemory-test)
+[![Repo size](https://img.shields.io/github/repo-size/sky-is-green/splinter-memory?style=flat&label=Repo%20size)](https://github.com/sky-is-green/splinter-memory)
+
 **Splinter-Memory** is an external, multi-agent context-curation layer for
 long-horizon LLM conversations. It sits between a user and a local LLM backend,
 filtering, scoring, compressing, and reassembling conversation history into a
