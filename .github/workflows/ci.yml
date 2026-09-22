@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [StrataMemory-test]
+    branches: [SplinterMemory-test]
   pull_request:
 
 # The evaluation suite (unit/integration) moved to the sibling hivebench repo;
