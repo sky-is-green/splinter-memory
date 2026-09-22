@@ -1,19 +1,27 @@
-# Using strata-memory inside another harness
+# Using splinter-memory inside another harness
 
-strata-memory is an **external** context-curation layer: it wraps your existing
+splinter-memory is an **external** context-curation layer: it wraps your existing
 LLM backend and curates every conversation into a bounded, high-relevance
 context window. It does not replace your harness; it sits in front of the
 model. Three integration modes, from zero-code to deep.
 
 ## Mode A: OpenAI-compatible swap (zero code, minutes)
 
-Start the studio once; it serves a real OpenAI-compatible endpoint that curates
-every request through the strata:
+Mode A runs the Studio sidecar, which lives in the sibling
+[hivebench](https://github.com/sky-is-green/hivebench) checkout (the `harness/`
+module was split out of this repo on 2026-09-12). Start it once from there; it
+serves a real OpenAI-compatible endpoint that curates every request through the
+splinter:
 
 ```powershell
+# from the sibling hivebench checkout
 .\.venv\Scripts\python -m harness --setup
 .\.venv\Scripts\python -m harness        # serves http://127.0.0.1:8765/v1/openai/chat/completions
 ```
+
+This repo also ships a standalone server that speaks the same wire contract
+without the Studio UI: `python -m splinter.server --port 8765` (or the
+`splinter-serve` console script).
 
 `POST /v1/openai/chat/completions` is a genuine passthrough: it curates the
 turn, prepends the curated context to the leading system message, forwards the
@@ -23,12 +31,12 @@ canned replies, not real model output; do not point a client at it.)
 
 Any client that accepts a `baseURL` + model id can use it. The API key is
 ignored locally (send anything, e.g. `lm-studio`). Conversations are keyed by
-the `X-Strata-Conversation` header, then the payload's `user` field, then
+the `X-Splinter-Conversation` header, then the payload's `user` field, then
 `"default"`.
 
 ### OpenCode
 
-Copy `docs/opencode.strata.example.json` → `opencode.json` (project root or
+Copy `docs/opencode.splinter.example.json` → `opencode.json` (project root or
 `~/.config/opencode/`), then restart opencode; config is loaded once at
 startup:
 
@@ -36,28 +44,28 @@ startup:
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "strata-memory": {
+    "splinter-memory": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Strata Memory (curated context)",
+      "name": "Splinter Memory (curated context)",
       "options": {
         "baseURL": "http://127.0.0.1:8765/v1/openai",
         "headers": {
-          "X-Strata-Conversation": "my-project"
+          "X-Splinter-Conversation": "my-project"
         }
       },
       "models": {
         "prism-ml/bonsai-27b": {
-          "name": "bonsai-27b via Strata",
+          "name": "bonsai-27b via Splinter",
           "tool_call": true
         }
       }
     }
   },
-  "model": "strata-memory/prism-ml/bonsai-27b"
+  "model": "splinter-memory/prism-ml/bonsai-27b"
 }
 ```
 
-The `X-Strata-Conversation` header pins all requests to a named conversation
+The `X-Splinter-Conversation` header pins all requests to a named conversation
 so context persists across sessions. Change the value per project for isolated
 memory stores, or omit it to use the shared `"default"` conversation.
 
@@ -66,7 +74,7 @@ be one the studio's backend can serve (list them at
 `http://127.0.0.1:8765/v1/models`). `"tool_call": true` declares the model can
 emit tool calls, opencode needs this to edit files/run commands. Drop it if
 your backend errors on tool calls. For a multi-project setup, give each
-project its own `X-Strata-Conversation` header so stores stay isolated.
+project its own `X-Splinter-Conversation` header so stores stay isolated.
 
 ### dsh / other OpenAI-compatible harnesses
 
@@ -76,37 +84,37 @@ an api key of `lm-studio`. The studio passes sampling parameters through
 
 ### How it behaves
 
-- Every user turn goes through the strata: classify → route → score → assemble →
+- Every user turn goes through the splinter: classify → route → score → assemble →
   generate, inside a per-conversation store.
-- Conversations are isolated by `conversation_id`; reset with `POST /v1/strata/reset`.
+- Conversations are isolated by `conversation_id`; reset with `POST /v1/splinter/reset`.
 - Reasoning models: pass `enable_thinking=false` in client params if the model
   honors it, and note that a small `max_tokens` cap yields empty visible replies
   on models that burn output on hidden CoT (see `docs/INSTALL.md` §8).
-- Watch it curate in real time: `GET /v1/strata/state` (or the studio UI).
+- Watch it curate in real time: `GET /v1/splinter/state` (or the studio UI).
 
 ## Mode B, Python facade (build your own)
 
 The system is a normal pip package with one import surface:
 
 ```python
-from strata import Strata, HiveConfig, UltraSmallDrone, LMStudioBackend
+from splinter import Splinter, SplinterConfig, UltraSmallDrone, LMStudioBackend
 
-strata = Strata(
-    config=HiveConfig(),                      # budgets, decay, drift thresholds
+splinter = Splinter(
+    config=SplinterConfig(),                  # budgets, decay, drift thresholds
     ultra=UltraSmallDrone(),                  # ~60 MB CPU drone (~5 ms/query)
     backend=LMStudioBackend(base_url="http://localhost:1234"),
 )
 
-result = strata.process_turn("what did we decide about auth?")
+result = splinter.process_turn("what did we decide about auth?")
 print(result.reply)          # the model's answer, generated under curated context
 print(result.assembled)      # exactly what the model saw (content + token budget)
 ```
 
-Per-conversation isolation is manual: call `strata.reset_conversation()` between
+Per-conversation isolation is manual: call `splinter.reset_conversation()` between
 conversations (one store per conversation). Any OpenAI-compatible backend works
 (`OpenAICompatBackend`), including hosted providers, keys live in
 `providers.local.json` (gitignored) or the `HARNESS_PROVIDERS_FILE` env var.
-`strata/` never imports from the bench or the studio, so it drops into any
+`splinter/` never imports from the bench or the studio, so it drops into any
 project cleanly.
 
 ## Mode C, dsh plugin (deepest integration)
@@ -116,7 +124,7 @@ contract (folded here from HARNESS-SPEC §3.1; this section is self-contained):
 
 - The plugin listens at **`agent/pre-step`** — the fork's documented extension point for
   "decides what the model sees; listeners may rewrite the claimed messages". For each step it
-  calls the sidecar `POST /v1/strata/turn` with `{query, conversation_id, model?}` and rewrites
+  calls the sidecar `POST /v1/splinter/turn` with `{query, conversation_id, model?}` and rewrites
   the system prompt with the curated context (single leading system message — strict chat
   templates require it).
 - Model adapters register through **`ctx.llm`** (local OpenAI-compat + hosted); curated context
@@ -138,26 +146,26 @@ The sidecar itself is an MCP server: `POST http://127.0.0.1:8765/v1/mcp`
 Two tools, both scoped by a **required** `conversation_id` argument that is
 never implied from headers or defaults:
 
-- `strata_search({conversation_id, query, top_k?})` — recall curated context
+- `splinter_search({conversation_id, query, top_k?})` — recall curated context
   for one conversation (read-only; the search itself is never stored).
-- `strata_remember({conversation_id, text})` — store a fact verbatim so later
+- `splinter_remember({conversation_id, text})` — store a fact verbatim so later
   searches in the same conversation recall it.
 
 One-line import per harness (restart/reload the client after adding):
 
 - LM Studio (`mcp.json`, Program → Install → Edit mcp.json):
-  `{"strata-memory": {"url": "http://127.0.0.1:8765/v1/mcp"}}`
+  `{"splinter-memory": {"url": "http://127.0.0.1:8765/v1/mcp"}}`
 - opencode (`opencode.json`):
-  `{"mcp": {"strata-memory": {"type": "remote", "url": "http://127.0.0.1:8765/v1/mcp", "oauth": false}}}`
+  `{"mcp": {"splinter-memory": {"type": "remote", "url": "http://127.0.0.1:8765/v1/mcp", "oauth": false}}}`
 - dsh (`cordis.yml`, one plugin instance per server):
-  `- {id: mcp-strata, name: '@deepseek-ai/dsh-mcp-client', config: {serverName: strata, transport: streamable-http, url: http://127.0.0.1:8765/v1/mcp}}`
-  (tools surface as `mcp__strata__strata_search` / `mcp__strata__strata_remember`.)
+  `- {id: mcp-splinter, name: '@deepseek-ai/dsh-mcp-client', config: {serverName: splinter, transport: streamable-http, url: http://127.0.0.1:8765/v1/mcp}}`
+  (tools surface as `mcp__splinter__splinter_search` / `mcp__splinter__splinter_remember`.)
 
 Give each project/session its own `conversation_id` so stores stay isolated
 (same rule as Modes A–C). If the sidecar sets `HARNESS_TOKEN`, pass it via
-the client's MCP `headers` option as `x-strata-token`. No MCP client handy?
+the client's MCP `headers` option as `x-splinter-token`. No MCP client handy?
 Plain JSON-RPC over curl works: `initialize` → `tools/list` →
-`tools/call` (`strata_remember`, then `strata_search` in a fresh
+`tools/call` (`splinter_remember`, then `splinter_search` in a fresh
 `conversation_id` recalls it; a different `conversation_id` does not).
 
 ## Config & gotchas
@@ -177,8 +185,8 @@ Plain JSON-RPC over curl works: `initialize` → `tools/list` →
 | **Strict chat templates** | The model rejects a system message that isn't first | The studio always merges curated context into the leading system message, keep client system messages first too |
 | **Tool calls** | Some GGUFs/backends error on `tools:` payloads | Set `tool_call: false` (or drop it) in the client model config; opencode then goes text-only |
 | **Single-slot servers** | Requests queue; concurrency doesn't speed up | Raise llama.cpp `-np`/LM Studio parallel slots for multi-request workloads |
-| **`max_tokens` is a ceiling, not a target** | Small caps truncate replies (or yield nothing on thinking models) | Keep 400+ tokens for normal turns; the strata's generation headroom reserves 2048 |
+| **`max_tokens` is a ceiling, not a target** | Small caps truncate replies (or yield nothing on thinking models) | Keep 400+ tokens for normal turns; the splinter's generation headroom reserves 2048 |
 | **Prefix caching** | TTFT grows with context when the pinned prefix changes | Keep the studio's pinned prefix stable; don't rewrite the leading system message yourself |
-| **Conversation isolation** | One store per conversation id; shared ids bleed context | Always set `X-Strata-Conversation` (or `user`) per project/session |
+| **Conversation isolation** | One store per conversation id; shared ids bleed context | Always set `X-Splinter-Conversation` (or `user`) per project/session |
 | **API key is cosmetic locally** | Any string works against LM Studio | Use real keys in `providers.local.json` only for hosted providers |
-| **Context window size** | Windows ≥8k verified; the strata's budget (1-6k) never binds | Nothing to do, the budget is inside any modern window |
+| **Context window size** | Windows ≥8k verified; the splinter's budget (1-6k) never binds | Nothing to do, the budget is inside any modern window |
