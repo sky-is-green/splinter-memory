@@ -87,6 +87,11 @@ class AssembledContext:
     payload_dedup_skipped: int = 0
 
 
+# Content-word tokeniser for query-echo detection (same rule as
+# Splinter._WORD_RE): 4+ alphanumerics, lowercased.
+_WORD_RE = re.compile(r"[a-z0-9]{4,}")
+
+
 class ContextAssembler:
     def __init__(self, collect_timings: bool = False) -> None:
         self.collect_timings = collect_timings
@@ -118,6 +123,8 @@ class ContextAssembler:
         max_chunk_share: float = 0.5,
         stale_threshold: Optional[int] = None,
         stale_factor: Optional[float] = None,
+        drift_prior: str = "off",
+        drift_prior_factor: float = 0.5,
     ) -> AssembledContext:
         comb_candidates = comb_candidates or []
         comb_by_id = {c.id: c for c in comb_candidates}
@@ -183,7 +190,10 @@ class ContextAssembler:
         drift = drift_detector.check(recent, all_chunks, ultra_small)
         drift_penalties = {}
         if drift.should_reset:
-            drift_penalties = self._apply_drift_reset(surviving, recent)
+            drift_penalties = self._apply_drift_reset(
+                surviving, recent, query=query,
+                drift_prior=drift_prior, drift_prior_factor=drift_prior_factor,
+            )
         self._tick("drift_ms", _t)
 
         # 5. Decay on surviving chunks (Retention); comb resurrections are
@@ -329,6 +339,30 @@ class ContextAssembler:
         return sum(estimate_tokens(c.content) for c in selected)
 
     @staticmethod
-    def _apply_drift_reset(surviving: list, recent: list) -> dict[str, float]:
+    def _apply_drift_reset(
+        surviving: list, recent: list, query: Optional[str] = None,
+        drift_prior: str = "off", drift_prior_factor: float = 0.5,
+    ) -> dict[str, float]:
+        """Drift-reset penalties per surviving chunk id.
+
+        Default (``drift_prior="off"``) is the original behaviour: recent chunks
+        x1.0, everything else x0.1. With ``drift_prior="downweight"`` a *query
+        echo* — a chunk sharing >= 80% of its content words with the query, which
+        carries no facts — is softly down-weighted to ``drift_prior_factor``
+        instead of being boosted by recency (STRATA-PLAN P2-DILUTION). Only the
+        penalty multiplier changes; the P1 floor contract is untouched.
+        """
         recent_ids = {c.id for c in recent}
-        return {c.id: (1.0 if c.id in recent_ids else 0.1) for c in surviving}
+        penalties = {c.id: (1.0 if c.id in recent_ids else 0.1) for c in surviving}
+        if drift_prior != "downweight" or not query:
+            return penalties
+        qwords = {w for w in _WORD_RE.findall(query.lower())}
+        if not qwords:
+            return penalties
+        for c in surviving:
+            if c.id not in recent_ids or not c.content:
+                continue
+            cwords = {w for w in _WORD_RE.findall(c.content.lower())}
+            if cwords and len(cwords & qwords) / len(cwords) >= 0.8:
+                penalties[c.id] = drift_prior_factor
+        return penalties
