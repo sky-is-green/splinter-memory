@@ -1,3 +1,9 @@
+> **Deprecated:** Splinter Memory has been absorbed into
+> [Hive](https://github.com/sky-is-green/hive). The canonical project, paper
+> and issues are at
+> [`hive/splinter`](https://github.com/sky-is-green/hive/tree/main/splinter).
+> This repository is archived for history.
+
 # Splinter-Memory
 
 [![CI](https://github.com/sky-is-green/splinter-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sky-is-green/splinter-memory/actions/workflows/ci.yml)
